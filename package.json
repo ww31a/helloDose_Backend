@@ -1,0 +1,16 @@
+{
+  "name": "hellodose_backend",
+  "version": "1.0.0",
+  "description": "hello dose backend ",
+  "keywords": [
+    "hello_dose",
+    "backend"
+  ],
+  "license": "ISC",
+  "author": "waqas anwar",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
