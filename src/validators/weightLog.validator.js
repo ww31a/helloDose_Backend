@@ -1,13 +1,6 @@
-/**
- * Weight Log Validators
- * Validates weight log-related requests
- */
+import Joi from "joi";
 
-// TODO: Define validation schemas
-// - Create weight log schema
-// - Update weight log schema
-// - Weight log query schema
-
-module.exports = {
-  // Export validator functions/schemas
-};
+export const createWeightLogSchema = Joi.object({
+  weight: Joi.number().positive().precision(3).required(),
+  unit: Joi.string().valid("lbs", "kg").required(),
+});

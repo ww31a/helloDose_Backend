@@ -1,14 +1,15 @@
-/**
- * Authentication Validators
- * Validates authentication-related requests
- */
+import Joi from "joi";
 
-// TODO: Define validation schemas
-// - Register schema
-// - Login schema
-// - Password reset schema
-// - Email verification schema
+export const requestOtpSchema = Joi.object({
+  email: Joi.string().email().required(),
+});
 
-module.exports = {
-  // Export validator functions/schemas
-};
+export const verifyOtpSchema = Joi.object({
+  email: Joi.string().email().required(),
+  otp: Joi.string().length(6).pattern(/^\d+$/).required(),
+  deviceToken: Joi.string().optional().allow(""),
+});
+
+export const refreshTokenSchema = Joi.object({
+  refreshToken: Joi.string().required(),
+});

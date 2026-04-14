@@ -1,13 +1,9 @@
-/**
- * Injection Log Validators
- * Validates injection log-related requests
- */
+import Joi from "joi";
 
-// TODO: Define validation schemas
-// - Create injection log schema
-// - Update injection log schema
-// - Injection log query schema
-
-module.exports = {
-  // Export validator functions/schemas
-};
+export const createInjectionLogSchema = Joi.object({
+  site: Joi.string()
+    .valid("L_ABDOMEN", "R_ABDOMEN", "L_THIGH", "R_THIGH")
+    .required(),
+  injectedAt: Joi.date().iso().max("now").required(),
+  notes: Joi.string().max(500).optional().allow(""),
+});

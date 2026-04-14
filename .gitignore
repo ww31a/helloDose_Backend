@@ -118,3 +118,6 @@ dist
 .pnp.*
 
 # End of https://mrkandreev.name/snippets/gitignore-generator/#Node
+
+hello-dose-backend-context.md 
+hello-dose-mvp-context.md
