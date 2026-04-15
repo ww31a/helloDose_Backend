@@ -1,6 +1,7 @@
 import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { sendOtpEmail } from "./email.service.js";
+import jwt from "jsonwebtoken";
 
 /**
  * Request OTP — find user by email, generate OTP, send email
@@ -82,10 +83,7 @@ export const refreshTokens = async (oldRefreshToken) => {
   // Decode without verifying expiry first to get user ID
   let decoded;
   try {
-    decoded = (await import("jsonwebtoken")).default.verify(
-      oldRefreshToken,
-      process.env.REFRESH_TOKEN_SECRET
-    );
+    decoded = jwt.default.verify(oldRefreshToken, process.env.REFRESH_TOKEN_SECRET);
   } catch {
     throw new ApiError(401, "Invalid or expired refresh token");
   }
@@ -113,5 +111,9 @@ export const refreshTokens = async (oldRefreshToken) => {
  * Logout — clear refresh token
  */
 export const logout = async (userId) => {
-  await User.findByIdAndUpdate(userId, { refreshToken: null });
+  const user = await User.findById(userId);
+  if (user) {
+    user.refreshToken = null;
+    await user.save();
+  }
 };

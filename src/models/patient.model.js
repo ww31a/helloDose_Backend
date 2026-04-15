@@ -21,6 +21,7 @@ const patientSchema = new mongoose.Schema(
     gender: { type: String },
     cardBrand: { type: String, default: "" },
     cardLast4: { type: String, default: "" },
+    npCheckinDate: { type: Date },
   },
   { timestamps: true }
 );

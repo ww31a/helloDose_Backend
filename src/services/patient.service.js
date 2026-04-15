@@ -264,3 +264,59 @@ export const getInjectionHistory = async (userId) => {
     },
   };
 };
+
+export const getWeightHistory = async (userId) => {
+  const patient = await Patient.findOne({ user: userId });
+
+  // Get all logs sorted latest first
+  const history = await WeightLog.find({ patient: userId })
+    .sort({ loggedAt: -1 });
+
+  // Current month boundaries
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  // Filter current month logs
+  const thisMonthLogs = history.filter(
+    (log) => log.loggedAt >= startOfMonth
+  );
+
+  // Format entries (day + time + weight)
+  const formattedLogs = thisMonthLogs.map((log) => ({
+    id: log._id,
+    weight: log.weightLbs,
+    unit: log.unitLogged,
+    date: log.loggedAt,
+    day: log.loggedAt.getDate(),
+    time: log.loggedAt.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  }));
+
+  // Optional: monthly stats (start vs latest weight)
+  let monthlyChange = null;
+
+  if (thisMonthLogs.length > 0) {
+    const oldest = thisMonthLogs[thisMonthLogs.length - 1];
+    const latest = thisMonthLogs[0];
+
+    monthlyChange = {
+      startWeight: oldest.weightLbs,
+      currentWeight: latest.weightLbs,
+      change: latest.weightLbs - oldest.weightLbs,
+    };
+  }
+
+  return {
+    history: formattedLogs,
+    monthlySummary: {
+      count: thisMonthLogs.length,
+      change: monthlyChange,
+    },
+    npCheckinDate: patient?.npCheckinDate || null,
+    formattedNpCheckinDate: patient?.npCheckinDate 
+      ? dayjs(patient.npCheckinDate).tz("America/New_York").format("MMM D, YYYY") 
+      : null,
+  };
+};
