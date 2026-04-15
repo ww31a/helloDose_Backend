@@ -17,11 +17,11 @@ router.get("/dashboard", patientController.getDashboard);
 // GET /api/v1/patient/my-np
 router.get("/my-np", patientController.getMyNp);
 
-// POST /api/v1/patient/weight
-router.post("/weight", validate(createWeightLogSchema), patientController.logWeight);
+// POST /api/v1/patient/weight-log
+router.post("/weight-log", validate(createWeightLogSchema), patientController.logWeight);
 
-// POST /api/v1/patient/injection
-router.post("/injection", validate(createInjectionLogSchema), patientController.logInjection);
+// POST /api/v1/patient/injection-log
+router.post("/injection-log", validate(createInjectionLogSchema), patientController.logInjection);
 
 // GET /api/v1/patient/weight-history
 router.get("/weight-history", patientController.getWeightHistory);

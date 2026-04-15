@@ -1,5 +1,10 @@
 import axios from "axios";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 /**
  * Cal.com Service (v2)
@@ -31,12 +36,12 @@ export const getAvailableSlots = async ({
   eventTypeSlug,
   username,
   date,
-  timeZone = "Asia/Karachi",
+  days = 30, // Support fetching a broader range for the calendar view
+  timeZone = "America/New_York",
 }) => {
   try {
-    // Exact format that worked in manual curl
-    const startTime = dayjs(date).startOf("day").format("YYYY-MM-DD");
-    const endTime = dayjs(date).add(7, "day").format("YYYY-MM-DD");
+    const startTime = dayjs.tz(date, timeZone).startOf("day").format("YYYY-MM-DD");
+    const endTime = dayjs.tz(date, timeZone).add(days, "day").format("YYYY-MM-DD");
 
     const params = {
       start: startTime,
@@ -53,21 +58,27 @@ export const getAvailableSlots = async ({
       throw new Error(`Missing identification: Slug[${eventTypeSlug}] User[${username}]`);
     }
 
-    // Use relative path 'slots' (no leading slash) with baseURL ending in 'v2'
     const response = await calcomClient.get("slots", { params });
 
-    // Extract slots from the response
+    // Extract all dates from the response
     const rawSlotsData = response.data?.data || {};
-    const dateKey = dayjs(date).format("YYYY-MM-DD");
-    const rawSlots = rawSlotsData[dateKey] || [];
+    
+    // Format the response into a mapping: { "YYYY-MM-DD": [ { time, isoTime }, ... ] }
+    const availabilityMap = {};
+    Object.keys(rawSlotsData).forEach((dKey) => {
+      availabilityMap[dKey] = (rawSlotsData[dKey] || []).map((slot) => ({
+        time: dayjs(slot.start || slot.time).tz(timeZone).format("h:mm A"),
+        isoTime: slot.start || slot.time,
+      }));
+    });
 
-    // Format slots for the app
-    const slots = rawSlots.map((slot) => ({
-      time: dayjs(slot.start || slot.time).format("h:mm A"),
-      isoTime: slot.start || slot.time,
-    }));
+    // If only one day was requested, return it in the old format to keep SelectTimeSlot working
+    if (days === 1 || days === "1") {
+      const dateKey = dayjs.tz(date, timeZone).format("YYYY-MM-DD");
+      return { slots: availabilityMap[dateKey] || [] };
+    }
 
-    return { date: dateKey, slots };
+    return availabilityMap;
   } catch (error) {
     if (error.response) {
       console.error(`[Cal.com Error] Status: ${error.response.status}`);

@@ -3,8 +3,8 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import * as appointmentService from "../services/appointment.service.js";
 
 export const getSlots = asyncHandler(async (req, res) => {
-  const { providerId, date } = req.query;
-  const data = await appointmentService.getSlots(req.user._id, providerId, date);
+  const { providerId, date, days } = req.query;
+  const data = await appointmentService.getSlots(req.user._id, providerId, date, days);
   res.status(200).json(new ApiResponse(200, data, "Available slots fetched"));
 });
 

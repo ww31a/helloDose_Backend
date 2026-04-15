@@ -19,8 +19,8 @@ export const logWeight = asyncHandler(async (req, res) => {
 });
 
 export const logInjection = asyncHandler(async (req, res) => {
-  const { site, injectedAt, dosage, notes } = req.body;
-  const data = await patientService.logInjection(req.user._id, site, injectedAt, dosage, notes);
+  const { site, injectedAt, dosage, notes, internalNotes } = req.body;
+  const data = await patientService.logInjection(req.user._id, site, injectedAt, dosage, notes || internalNotes);
   res.status(201).json(new ApiResponse(201, data, "Injection logged successfully"));
 });
 

@@ -6,6 +6,12 @@ import { Appointment } from "../models/appointment.model.js";
 import { Provider } from "../models/provider.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { LBS_PER_KG } from "../constants.js";
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 /**
  * Get patient dashboard — single aggregated response
@@ -119,6 +125,8 @@ export const getDashboard = async (userId) => {
       daysUntil,
       meetingLink: nextAppointment.meetingLink,
       status: nextAppointment.status,
+      formattedDate: dayjs(nextAppointment.startTime).tz("America/New_York").format("MMM D, YYYY"),
+      formattedTime: dayjs(nextAppointment.startTime).tz("America/New_York").format("h:mm A")
     };
   }
 
@@ -185,6 +193,8 @@ export const getMyNp = async (userId) => {
       meetingLink: nextAppointment.meetingLink,
       status: nextAppointment.status,
       daysUntil,
+      formattedDate: dayjs(nextAppointment.startTime).tz("America/New_York").format("MMM D, YYYY"),
+      formattedTime: dayjs(nextAppointment.startTime).tz("America/New_York").format("h:mm A")
     };
   }
 
@@ -193,7 +203,8 @@ export const getMyNp = async (userId) => {
       _id: provider.user._id,
       firstName: provider.user.firstName,
       lastName: provider.user.lastName,
-      title: "NP",
+      name: `${provider.user.firstName} ${provider.user.lastName}`,
+      title: provider.title || "Board Certified FNP",
       avatar: provider.user.avatar,
       npSince: provider.npSince,
     },

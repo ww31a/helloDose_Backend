@@ -8,7 +8,7 @@ import * as calcomService from "./calcom.service.js";
 /**
  * Get available time slots for a provider on a given date
  */
-export const getSlots = async (patientUserId, providerId, date) => {
+export const getSlots = async (patientUserId, providerId, date, days = 30) => {
   // Verify the provider exists and has a Cal.com event type
   const provider = await Provider.findOne({ user: providerId });
   if (!provider) {
@@ -24,7 +24,8 @@ export const getSlots = async (patientUserId, providerId, date) => {
     eventTypeSlug: provider.calcom_event_slug,
     username: provider.calcom_username,
     date,
-    timeZone: "Asia/Karachi", // Defaulting to user's timezone
+    days,
+    timeZone: "America/New_York", // Align with provider's timezone
   });
 
   return result;
@@ -55,7 +56,7 @@ export const bookAppointment = async (patientUserId, providerId, startTime) => {
     email: patientUser.email,
     patientId: patientUserId.toString(),
     providerId: providerId.toString(),
-    timeZone: "Asia/Karachi",
+    timeZone: "America/New_York",
   });
 
   // Save appointment to our DB
