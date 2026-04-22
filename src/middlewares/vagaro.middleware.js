@@ -17,6 +17,8 @@ const VAGARO_IPS = [
  */
 export const verifyVagaroWebhook = (req, res, next) => {
   const clientIp = req.ip || req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+  const signature = req.headers["x-vagaro-signature"];
+  const verificationToken = process.env.VAGARO_VERIFICATION_TOKEN;
 
   // Log the incoming request for debugging (optional, can be removed later)
   logger.info(`[Vagaro Webhook] Incoming request from IP: ${clientIp}`);
@@ -28,6 +30,17 @@ export const verifyVagaroWebhook = (req, res, next) => {
       logger.warn(`[Vagaro Webhook] Blocked request from unauthorized IP: ${clientIp}`);
       throw new ApiError(403, "Unauthorized IP address");
     }
+  }
+
+  // 2. Signature Verification
+  if (!verificationToken) {
+    logger.error("[Vagaro Webhook] VAGARO_VERIFICATION_TOKEN is not set in environment variables");
+    throw new ApiError(500, "Webhook verification configuration error");
+  }
+
+  if (!signature || signature !== verificationToken) {
+    logger.warn(`[Vagaro Webhook] Invalid signature provided from IP: ${clientIp}`);
+    throw new ApiError(401, "Invalid verification token");
   }
 
   next();
