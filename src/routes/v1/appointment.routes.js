@@ -7,7 +7,10 @@ import * as appointmentController from "../../controllers/appointment.controller
 
 const router = Router();
 
-// All appointment routes require auth + patient role
+// POST /api/v1/appointments/:id/start-consultation — patient or provider
+router.post("/:id/start-consultation", verifyToken, appointmentController.startConsultation);
+
+// Routes below require patient role
 router.use(verifyToken, allowRoles("patient"));
 
 // GET /api/v1/appointments/slots?providerId=...&date=...

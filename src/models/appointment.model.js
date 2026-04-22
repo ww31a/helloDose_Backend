@@ -12,13 +12,15 @@ const appointmentSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    calBookingId: { type: String, index: true },
+    vagaro_appointment_id: { type: String, unique: true, sparse: true, index: true },
+    serviceId: { type: String },
+    cal_booking_id: { type: String, index: true },
     startTime: { type: Date, required: true },
     endTime: { type: Date },
     meetingLink: { type: String },
     status: {
       type: String,
-      enum: ["scheduled", "rescheduled", "cancelled", "completed"],
+      enum: ["scheduled", "rescheduled", "cancelled", "completed", "no_show"],
       default: "scheduled",
     },
     appointmentType: {

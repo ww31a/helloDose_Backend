@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import mongoSanitize from "express-mongo-sanitize";
 
 const app = express();
+app.set("trust proxy", true);
 
 // ── Security & Compression ──
 app.use(helmet());

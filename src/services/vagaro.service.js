@@ -1,268 +1,318 @@
 import axios from "axios";
+import { ApiError } from "../utils/ApiError.js";
+import logger from "../utils/logger.js";
 
 /**
  * Vagaro Service
  *
- * Vagaro is the system of record for:
- *  - Patient information
- *  - Assigned NP (provider) mapping
- *  - Treatment program / medication data
- *  - Program-related details
+ * Mental model:
+ *   Webhooks = entry points (deliver IDs)
+ *   APIs     = enrichment layer (turn IDs into full data)
+ *   DB       = working dataset (built from hydrated data)
  *
- * NOT used for: scheduling, video consultations, real-time appointment UI
+ * All Vagaro API calls are POST — even reads.
+ * Auth uses a custom `accessToken` header, NOT Authorization: Bearer.
+ * businessId is injected into every request body automatically.
  */
 
-const vagaroClient = axios.create({
-  baseURL: process.env.VAGARO_BASE_URL,
-  headers: {
-    Authorization: `Bearer ${process.env.VAGARO_API_KEY}`,
-    "Content-Type": "application/json",
-  },
-  timeout: 10000,
-});
+const BASE_URL = process.env.VAGARO_BASE_URL || "https://api.vagaro.com/us03/api/v2";
+const BUSINESS_ID = process.env.VAGARO_BUSINESS_ID;
 
-// ── Customer / Patient APIs ──
+// Extract region from base URL (e.g. "us03")
+const regionMatch = BASE_URL.match(/vagaro\.com\/([^/]+)\//);
+const REGION = regionMatch ? regionMatch[1] : "us03";
+
+// ── Token cache ───────────────────────────────────────────────────────────────
+let cachedToken = null;
+let tokenExpiry = null;
+
+const getAccessToken = async () => {
+  if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
+
+  // Correct endpoint: POST /merchants/generate-access-token
+  // Body: { clientSecretKey } only
+  const res = await axios.post(
+    `https://api.vagaro.com/${REGION}/api/v2/merchants/generate-access-token`,
+    {
+      clientID: process.env.VAGARO_CLIENT_ID,
+      clientSecretKey: process.env.VAGARO_CLIENT_SECRET,
+    },
+    { headers: { "Content-Type": "application/json" } }
+  );
+
+  // Response shape: { status, data: { access_token, expires_in } }
+  const token = res.data?.data?.access_token ?? res.data?.access_token;
+  if (!token) throw new Error(`No access_token in Vagaro response: ${JSON.stringify(res.data)}`);
+
+  cachedToken = token;
+  tokenExpiry = Date.now() + 50 * 60 * 1000; // refresh at 50 min, token lives ~60 min
+  return cachedToken;
+};
+
+// ── Shared request helper ─────────────────────────────────────────────────────
+const vagaroPost = async (path, body = {}, params = {}) => {
+  try {
+    const token = await getAccessToken();
+    const res = await axios.post(
+      `${BASE_URL}${path}`,
+      { businessId: BUSINESS_ID, ...body },
+      {
+        params,
+        headers: {
+          accept: "application/json",
+          accessToken: token,
+          "content-type": "application/json",
+        },
+      }
+    );
+    return res.data;
+  } catch (err) {
+    logger.error(`Vagaro API error [${path}]: ${err.message}`);
+    throw new ApiError(502, `Vagaro request failed: ${path}`);
+  }
+};
+
+// ── API functions ─────────────────────────────────────────────────────────────
+
+export const getEmployee = ({ serviceProviderId }) =>
+  vagaroPost("/employees", { serviceProviderId });
+
+export const getCustomer = ({ customerId }) =>
+  vagaroPost("/customer", { customerId });
+
+export const getServices = ({ serviceId, pageNumber = 1, pageSize = 20 } = {}) =>
+  vagaroPost("/services", serviceId ? { serviceId } : {}, { pageNumber, pageSize });
+
+export const getAppointments = ({
+  appointmentId,
+  customerId,
+  pageNumber = 1,
+  pageSize = 20,
+  orderBy = "desc",
+} = {}) =>
+  vagaroPost(
+    "/appointments",
+    {
+      ...(appointmentId && { appointmentId }),
+      ...(customerId && { customerId }),
+    },
+    { pageNumber, pageSize, orderBy }
+  );
+
+// ── Webhook handler functions ─────────────────────────────────────────────────
 
 /**
- * Fetch a customer (patient) from Vagaro by their Vagaro ID
+ * appointment.created / appointment.updated
+ * Fan-out: hydrate all 4 entities in parallel, then upsert into DB.
  */
-export const getCustomerById = async (vagaroCustomerId) => {
-  try {
-    const response = await vagaroClient.get(`/customers/${vagaroCustomerId}`);
-    return response.data;
-  } catch (error) {
-    console.error("Vagaro getCustomerById error:", error?.response?.data || error.message);
-    throw new Error(`Failed to fetch customer from Vagaro: ${error.message}`);
+export const handleAppointmentEvent = async (data) => {
+  const { User } = await import("../models/user.model.js");
+  const { Appointment } = await import("../models/appointment.model.js");
+
+  const [apptData, customerData, employeeData] = await Promise.all([
+    getAppointments({ appointmentId: data.appointmentId }),
+    getCustomer({ customerId: data.customerId }),
+    getEmployee({ serviceProviderId: data.serviceProviderId }),
+    getServices({ serviceId: data.serviceId }), // fire but we don't need the result for upserts
+  ]);
+
+  const appt = apptData?.appointments?.[0] ?? apptData;
+
+  // Upsert patient User
+  const patient = await User.findOneAndUpdate(
+    { vagaro_id: data.customerId },
+    {
+      $set: {
+        vagaro_id: data.customerId,
+        firstName: customerData.firstName,
+        lastName: customerData.lastName,
+        email: customerData.email,
+        role: "patient",
+      },
+    },
+    { upsert: true, new: true }
+  );
+
+  // Upsert provider User
+  const provider = await User.findOneAndUpdate(
+    { vagaro_id: data.serviceProviderId },
+    {
+      $set: {
+        vagaro_id: data.serviceProviderId,
+        firstName: employeeData.firstName,
+        lastName: employeeData.lastName,
+        email: employeeData.email,
+        role: "provider",
+      },
+    },
+    { upsert: true, new: true }
+  );
+
+  // Upsert Appointment
+  await Appointment.findOneAndUpdate(
+    { vagaro_appointment_id: data.appointmentId },
+    {
+      $set: {
+        vagaro_appointment_id: data.appointmentId,
+        patient: patient._id,
+        provider: provider._id,
+        serviceId: data.serviceId,
+        startTime: appt.startTime,
+        endTime: appt.endTime,
+        status: appt.status ?? "scheduled",
+      },
+    },
+    { upsert: true, new: true }
+  );
+
+  logger.info(`[Vagaro] appointment upserted: ${data.appointmentId}`);
+};
+
+/**
+ * appointment.deleted
+ */
+export const handleAppointmentDeleted = async (data) => {
+  const { Appointment } = await import("../models/appointment.model.js");
+
+  const result = await Appointment.findOneAndUpdate(
+    { vagaro_appointment_id: data.appointmentId },
+    { $set: { status: "cancelled" } }
+  );
+
+  if (!result) {
+    logger.warn(`[Vagaro] appointment.deleted — no record found for ${data.appointmentId}`);
   }
 };
 
 /**
- * Search customers in Vagaro by email
+ * customer.created / customer.updated
  */
-export const searchCustomerByEmail = async (email) => {
-  try {
-    const response = await vagaroClient.get("/customers", {
-      params: { email },
-    });
-    return response.data;
-  } catch (error) {
-    console.error("Vagaro searchCustomerByEmail error:", error?.response?.data || error.message);
-    throw new Error(`Failed to search customer in Vagaro: ${error.message}`);
-  }
+export const handleCustomerEvent = async (data) => {
+  const { User } = await import("../models/user.model.js");
+
+  const customerData = await getCustomer({ customerId: data.customerId });
+
+  await User.findOneAndUpdate(
+    { vagaro_id: data.customerId },
+    {
+      $set: {
+        vagaro_id: data.customerId,
+        firstName: customerData.firstName,
+        lastName: customerData.lastName,
+        email: customerData.email,
+        role: "patient",
+      },
+    },
+    { upsert: true, new: true }
+  );
+
+  logger.info(`[Vagaro] customer upserted: ${data.customerId}`);
 };
 
 /**
- * Fetch all customers (paginated) from Vagaro
+ * employee.created / employee.updated
  */
-export const getCustomers = async (page = 1, limit = 50) => {
-  try {
-    const response = await vagaroClient.get("/customers", {
-      params: { page, limit },
-    });
-    return response.data;
-  } catch (error) {
-    console.error("Vagaro getCustomers error:", error?.response?.data || error.message);
-    throw new Error(`Failed to fetch customers from Vagaro: ${error.message}`);
-  }
-};
+export const handleEmployeeEvent = async (data) => {
+  const { User } = await import("../models/user.model.js");
 
-// ── Employee / Provider APIs ──
+  const employeeData = await getEmployee({ serviceProviderId: data.serviceProviderId });
 
-/**
- * Fetch an employee (provider/NP) from Vagaro by their Vagaro ID
- */
-export const getEmployeeById = async (vagaroEmployeeId) => {
-  try {
-    const response = await vagaroClient.get(`/employees/${vagaroEmployeeId}`);
-    return response.data;
-  } catch (error) {
-    console.error("Vagaro getEmployeeById error:", error?.response?.data || error.message);
-    throw new Error(`Failed to fetch employee from Vagaro: ${error.message}`);
-  }
-};
+  await User.findOneAndUpdate(
+    { vagaro_id: data.serviceProviderId },
+    {
+      $set: {
+        vagaro_id: data.serviceProviderId,
+        firstName: employeeData.firstName,
+        lastName: employeeData.lastName,
+        email: employeeData.email,
+        role: "provider",
+      },
+    },
+    { upsert: true, new: true }
+  );
 
-// ── Service / Program APIs ──
-
-/**
- * Fetch services (treatment programs) from Vagaro
- */
-export const getServices = async () => {
-  try {
-    const response = await vagaroClient.get("/services");
-    return response.data;
-  } catch (error) {
-    console.error("Vagaro getServices error:", error?.response?.data || error.message);
-    throw new Error(`Failed to fetch services from Vagaro: ${error.message}`);
-  }
+  logger.info(`[Vagaro] employee upserted: ${data.serviceProviderId}`);
 };
 
 /**
- * Fetch a specific service by ID
+ * form_response — Weight Loss Intake Form
+ * Stores: gender, height, weight (as initialWeight), primaryGoal on Patient
  */
-export const getServiceById = async (serviceId) => {
-  try {
-    const response = await vagaroClient.get(`/services/${serviceId}`);
-    return response.data;
-  } catch (error) {
-    console.error("Vagaro getServiceById error:", error?.response?.data || error.message);
-    throw new Error(`Failed to fetch service from Vagaro: ${error.message}`);
-  }
-};
-
-// ── Data Sync Helpers ──
-
-/**
- * Sync a Vagaro customer into our Patient + User records
- * Called by webhook handler or manual sync
- */
-export const syncCustomerToPatient = async (vagaroCustomerData) => {
-  // Import models here to avoid circular dependency
+export const handleWeightLossIntakeForm = async (data) => {
   const { User } = await import("../models/user.model.js");
   const { Patient } = await import("../models/patient.model.js");
 
-  const {
-    id: vagaroId,
-    firstName,
-    lastName,
-    email,
-  } = vagaroCustomerData;
+  const { gender, height, weight, primaryGoal } = data.fields ?? {};
 
-  if (!email) {
-    console.error("Vagaro customer has no email, skipping sync:", vagaroId);
-    return null;
-  }
-
-  // Find or create user
-  let user = await User.findOne({ email: email.toLowerCase() });
+  const user = await User.findOne({ vagaro_id: data.customerId });
   if (!user) {
-    user = await User.create({
-      firstName,
-      lastName,
-      email: email.toLowerCase(),
-      role: "patient",
-    });
-  } else {
-    // Update name if changed in Vagaro
-    user.firstName = firstName || user.firstName;
-    user.lastName = lastName || user.lastName;
-    await user.save();
+    logger.warn(`[Vagaro] Weight Loss Intake Form — no user found for vagaro_id ${data.customerId}`);
+    return;
   }
 
-  // Find or create patient profile
-  let patient = await Patient.findOne({ user: user._id });
+  const patient = await Patient.findOne({ user: user._id });
   if (!patient) {
-    patient = await Patient.create({
-      user: user._id,
-      vagaro_id: vagaroId.toString(),
-    });
-  } else {
-    patient.vagaro_id = vagaroId.toString();
-    await patient.save();
+    logger.warn(`[Vagaro] Weight Loss Intake Form — no patient found for user ${user._id}`);
+    return;
   }
 
-  return { user, patient };
+  await Patient.findOneAndUpdate(
+    { user: user._id },
+    { $set: { gender, height, primaryGoal } },
+    { new: true }
+  );
+
+  logger.info(`[Vagaro] Weight Loss Intake Form stored for patient ${patient._id}`);
 };
 
 /**
- * Sync a Vagaro employee into our Provider + User records
+ * form_response — DROP Virtual Consultation with Nurse Practitioner Copy
+ * Stores: startWeight, currentDosage, medication, targetWeightLoss, followUpTiming on Program
  */
-export const syncEmployeeToProvider = async (vagaroEmployeeData) => {
+export const handleDropConsultationForm = async (data) => {
   const { User } = await import("../models/user.model.js");
-  const { Provider } = await import("../models/provider.model.js");
-
-  const {
-    id: vagaroId,
-    firstName,
-    lastName,
-    email,
-  } = vagaroEmployeeData;
-
-  if (!email) {
-    console.error("Vagaro employee has no email, skipping sync:", vagaroId);
-    return null;
-  }
-
-  let user = await User.findOne({ email: email.toLowerCase() });
-  if (!user) {
-    user = await User.create({
-      firstName,
-      lastName,
-      email: email.toLowerCase(),
-      role: "provider",
-    });
-  }
-
-  let provider = await Provider.findOne({ user: user._id });
-  if (!provider) {
-    provider = await Provider.create({
-      user: user._id,
-      vagaro_id: vagaroId.toString(),
-      npSince: new Date(),
-    });
-  } else {
-    provider.vagaro_id = vagaroId.toString();
-    await provider.save();
-  }
-
-  return { user, provider };
-};
-
-/**
- * Sync Vagaro service data into our Program model
- */
-export const syncServiceToProgram = async (vagaroServiceData, patientUserId) => {
+  const { Patient } = await import("../models/patient.model.js");
   const { Program } = await import("../models/program.model.js");
 
   const {
-    id: vagaroId,
-    name,
-    // Map Vagaro service names to our medication enum
-  } = vagaroServiceData;
+    startingWeight,
+    weightLossGoal,
+    medication,
+    startingDose,
+    followUpTiming,
+  } = data.fields ?? {};
 
-  // Determine medication type from service name
-  const lowerName = (name || "").toLowerCase();
-  let medication = "tirzepatide"; // default
-  if (lowerName.includes("semaglutide") || lowerName.includes("ozempic") || lowerName.includes("wegovy")) {
-    medication = "semaglutide";
+  const user = await User.findOne({ vagaro_id: data.customerId });
+  if (!user) {
+    logger.warn(`[Vagaro] DROP Consultation Form — no user found for vagaro_id ${data.customerId}`);
+    return;
   }
 
-  let program = await Program.findOne({ vagaro_id: vagaroId.toString(), patient: patientUserId });
+  const patient = await Patient.findOne({ user: user._id });
+  if (!patient) {
+    logger.warn(`[Vagaro] DROP Consultation Form — no patient found for user ${user._id}`);
+    return;
+  }
+
+  const program = await Program.findOne({ patient: user._id, isActive: true });
   if (!program) {
-    program = await Program.create({
-      patient: patientUserId,
-      name: name || "Treatment Program",
-      medication,
-      startedAt: new Date(),
-      vagaro_id: vagaroId.toString(),
-      isActive: true,
-    });
-  } else {
-    program.name = name || program.name;
-    program.medication = medication;
-    await program.save();
+    logger.warn(`[Vagaro] DROP Consultation Form — no active program found for patient ${user._id}`);
+    return;
   }
 
-  return program;
-};
+  await Program.findOneAndUpdate(
+    { _id: program._id },
+    {
+      $set: {
+        ...(startingWeight && { startWeight: parseFloat(startingWeight) }),
+        ...(weightLossGoal && { targetWeightLoss: parseFloat(weightLossGoal) }),
+        ...(medication && { medication }),
+        ...(startingDose && { currentDosage: startingDose }),
+        ...(followUpTiming && { followUpTiming }),
+      },
+    },
+    { new: true }
+  );
 
-// ── Webhook Event Processing ──
-
-/**
- * Process Vagaro webhook events
- * Event types: customer.created, customer.updated, employee.created, employee.updated, transaction.created
- */
-export const processWebhookEvent = async (eventType, payload) => {
-  switch (eventType) {
-    case "customer.created":
-    case "customer.updated":
-      return syncCustomerToPatient(payload);
-
-    case "employee.created":
-    case "employee.updated":
-      return syncEmployeeToProvider(payload);
-
-    default:
-      console.log(`Unhandled Vagaro webhook event: ${eventType}`);
-      return null;
-  }
+  logger.info(`[Vagaro] DROP Consultation Form stored for program ${program._id}`);
 };

@@ -121,3 +121,13 @@ dist
 
 hello-dose-backend-context.md 
 hello-dose-mvp-context.md
+hello-dose-mvp-context2.md
+
+.config.kiro
+design.md
+requirements.md
+tasks.md
+
+src/scripts/*
+
+scratch/*

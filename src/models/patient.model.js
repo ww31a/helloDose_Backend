@@ -19,6 +19,8 @@ const patientSchema = new mongoose.Schema(
     },
     age: { type: Number },
     gender: { type: String },
+    height: { type: String },
+    primaryGoal: { type: String },
     cardBrand: { type: String, default: "" },
     cardLast4: { type: String, default: "" },
     npCheckinDate: { type: Date },
