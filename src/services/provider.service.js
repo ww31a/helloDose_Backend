@@ -29,8 +29,9 @@ export const getPatients = async (providerUserId) => {
     patients.map(async (patient) => {
       const userId = patient.user._id;
 
-      // Program
-      const program = await Program.findOne({ patient: userId, isActive: true });
+      // Active Programs
+      const activePrograms = await Program.find({ patient: userId, isActive: true });
+      const mainProgram = activePrograms[0]; // Use first one for stats logic
 
       // Latest weight
       const latestWeight = await WeightLog.findOne({ patient: userId }).sort({ loggedAt: -1 });
@@ -50,18 +51,18 @@ export const getPatients = async (providerUserId) => {
       let programData = null;
       let healthInsights = null;
 
-      if (program) {
+      if (mainProgram) {
         const currentWeightLoss =
-          program.startWeight && latestWeight ? program.startWeight - latestWeight.weightLbs : 0;
-        const progressPercent = program.targetWeightLoss
-          ? Math.min(100, Math.round((currentWeightLoss / program.targetWeightLoss) * 100))
+          mainProgram.startWeight && latestWeight ? mainProgram.startWeight - latestWeight.weightLbs : 0;
+        const progressPercent = mainProgram.targetWeightLoss
+          ? Math.min(100, Math.round((currentWeightLoss / mainProgram.targetWeightLoss) * 100))
           : 0;
 
         let reorderStatus = "not_eligible";
         let nextRefillLabel = null;
-        if (program.nextRefillDate) {
+        if (mainProgram.nextRefillDate) {
           const daysToRefill = Math.ceil(
-            (program.nextRefillDate - new Date()) / (1000 * 60 * 60 * 24)
+            (mainProgram.nextRefillDate - new Date()) / (1000 * 60 * 60 * 24)
           );
           if (daysToRefill <= 0) {
             reorderStatus = "eligible_now";
@@ -73,22 +74,22 @@ export const getPatients = async (providerUserId) => {
         }
 
         programData = {
-          name: program.name,
-          startedAt: program.startedAt,
-          targetWeightLoss: program.targetWeightLoss,
+          name: mainProgram.name,
+          startedAt: mainProgram.startedAt,
+          targetWeightLoss: mainProgram.targetWeightLoss,
           currentWeightLoss: Math.round(currentWeightLoss * 10) / 10,
           progressPercent,
-          monthsCompleted: Math.max(0, Math.floor((new Date() - program.startedAt) / (1000 * 60 * 60 * 24 * 30))),
-          durationMonths: program.durationMonths || 8,
-          lastReorderDate: program.lastReorderDate,
+          monthsCompleted: Math.max(0, Math.floor((new Date() - mainProgram.startedAt) / (1000 * 60 * 60 * 24 * 30))),
+          durationMonths: mainProgram.durationMonths || 8,
+          lastReorderDate: mainProgram.lastReorderDate,
           reorderStatus,
           nextRefillLabel,
         };
 
         const totalLossPercent =
-          program.startWeight && latestWeight
+          mainProgram.startWeight && latestWeight
             ? Math.round(
-                ((latestWeight.weightLbs - program.startWeight) / program.startWeight) * 100 * 10
+                ((latestWeight.weightLbs - mainProgram.startWeight) / mainProgram.startWeight) * 100 * 10
               ) / 10
             : 0;
 
@@ -107,9 +108,9 @@ export const getPatients = async (providerUserId) => {
           lastLoggedAt: latestWeight?.loggedAt || null,
           lastLoggedLabel,
           totalLossPercent,
-          currentDosage: program.currentDosage,
+          currentDosage: mainProgram.currentDosage,
           lastInjectionAt: latestInjection?.injectedAt || null,
-          nextRefillDate: program.nextRefillDate,
+          nextRefillDate: mainProgram.nextRefillDate,
         };
       }
 
@@ -135,6 +136,7 @@ export const getPatients = async (providerUserId) => {
           gender: patient.gender,
         },
         program: programData,
+        activePrograms: activePrograms.map(p => ({ name: p.name })),
         healthInsights,
         nextAppointment: appointmentData,
       };
@@ -205,11 +207,6 @@ export const requestCheckin = async (providerUserId, patientId) => {
     console.log(
       `[Check-in Request] Push notification would be sent to device token: ${patientUser.deviceToken}`
     );
-    // Firebase push notification code would go here:
-    // await sendPushNotification(patientUser.deviceToken, {
-    //   title: "Check-in Requested",
-    //   body: "Your NP has requested a check-in — tap to schedule",
-    // });
   }
 
   return null;
@@ -223,13 +220,11 @@ export const getDashboard = async (providerUserId) => {
   if (!provider) throw new ApiError(404, "Provider not found");
 
   const now = dayjs().tz(PROVIDER_TIMEZONE);
-  const startOfToday = now.startOf("day").toDate();
-  const endOfToday = now.endOf("day").toDate();
 
-  // Find all appointments for today
-  const appointmentsToday = await Appointment.find({
+  // Find all future appointments
+  const futureAppointments = await Appointment.find({
     provider: providerUserId,
-    startTime: { $gte: startOfToday, $lte: endOfToday },
+    startTime: { $gte: now.toDate() },
     status: "scheduled",
   })
     .sort({ startTime: 1 })
@@ -237,7 +232,7 @@ export const getDashboard = async (providerUserId) => {
 
   // Enrich appointments with program info
   const enrichedAppointments = await Promise.all(
-    appointmentsToday.map(async (apt) => {
+    futureAppointments.map(async (apt) => {
       const program = await Program.findOne({ patient: apt.patient._id, isActive: true });
       return {
         _id: apt._id,
@@ -252,19 +247,16 @@ export const getDashboard = async (providerUserId) => {
     })
   );
 
-  const nextAppointment = enrichedAppointments.find((apt) => dayjs(apt.startTime).isAfter(now)) || null;
-  const upcomingToday = enrichedAppointments.filter(
-    (apt) => apt._id.toString() !== nextAppointment?._id?.toString()
-  );
+  const nextAppointment = enrichedAppointments[0] || null;
+  const upcomingAppointments = enrichedAppointments.slice(1);
 
   // Active patients (basic count and list for search)
   const patientsCount = await Patient.countDocuments({ assignedProvider: providerUserId });
 
   return {
     providerName: provider.firstName,
-    appointmentsTodayCount: appointmentsToday.length,
     nextAppointment,
-    upcomingToday,
+    upcomingAppointments,
     activePatientsCount: patientsCount,
   };
 };

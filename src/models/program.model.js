@@ -21,6 +21,11 @@ const programSchema = new mongoose.Schema(
     nextRefillDate: { type: Date },
     vagaro_id: { type: String, index: true },
     durationMonths: { type: Number, default: 8 },
+    type: {
+      type: String,
+      enum: ["weight-loss", "peptide"],
+      default: "weight-loss",
+    },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

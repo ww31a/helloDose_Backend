@@ -13,7 +13,9 @@ import logger from "../utils/logger.js";
  */
 
 const CALCOM_BASE_URL = "https://api.cal.com/v2";
-const CALCOM_API_VERSION = "2024-08-13";
+// /v2/slots uses 2024-09-04; /v2/bookings uses 2024-08-13
+const CALCOM_SLOTS_VERSION = "2024-09-04";
+const CALCOM_BOOKINGS_VERSION = "2024-08-13";
 
 // One shared client — platform API key, used for all NPs
 const calcom = axios.create({
@@ -21,7 +23,6 @@ const calcom = axios.create({
   headers: {
     Authorization: `Bearer ${process.env.CALCOM_API_KEY}`,
     "Content-Type": "application/json",
-    "cal-api-version": CALCOM_API_VERSION,
   },
   timeout: 10000,
 });
@@ -33,18 +34,26 @@ const calcom = axios.create({
 export const getAvailableSlots = async ({
   username,
   eventTypeSlug,
+  eventTypeId,
   startTime,
   endTime,
   timeZone = "America/New_York",
 }) => {
   try {
+    const params = { start: startTime, end: endTime, timeZone, eventTypeSlug, username };
     const { data } = await calcom.get("/slots", {
-      params: { username, eventTypeSlug, startTime, endTime, timeZone },
+      params,
+      headers: { "cal-api-version": CALCOM_SLOTS_VERSION },
     });
-    // Returns slots grouped by date: { "2026-04-20": [{ time: "..." }, ...] }
-    return data.data?.slots ?? {};
+    // Cal.com v2 returns: { data: { "2026-04-28": [{ start: "..." }], ... }, status: "success" }
+    return data.data ?? {};
   } catch (err) {
     logger.error(`Cal.com getAvailableSlots error: ${err.message}`);
+    logger.error(`Cal.com request params: ${JSON.stringify(params)}`);
+    if (err.response) {
+      logger.error(`Cal.com response status: ${err.response.status}`);
+      logger.error(`Cal.com response data: ${JSON.stringify(err.response.data)}`);
+    }
     throw new ApiError(502, "Failed to fetch availability from Cal.com");
   }
 };
@@ -59,17 +68,17 @@ export const generateMeetingLink = async ({
   patientName,
   patientEmail,
 }) => {
-  if (!provider.calcom_username || !provider.calcom_event_type_slug) {
+  if (!provider.calcom_username || !provider.calcom_event_slug) {
     throw new ApiError(
       500,
-      `Provider ${provider._id} is missing Cal.com configuration (calcom_username or calcom_event_type_slug)`
+      `Provider ${provider._id} is missing Cal.com configuration (calcom_username or calcom_event_slug)`
     );
   }
 
   try {
     const { data } = await calcom.post("/bookings", {
       username: provider.calcom_username,
-      eventTypeSlug: provider.calcom_event_type_slug,
+      eventTypeSlug: provider.calcom_event_slug,
       start: appointment.startTime,
       attendee: {
         name: patientName,
@@ -77,7 +86,7 @@ export const generateMeetingLink = async ({
         timeZone: "America/New_York",
       },
       metadata: { appointmentId: appointment._id.toString() },
-    });
+    }, { headers: { "cal-api-version": CALCOM_BOOKINGS_VERSION } });
 
     return {
       meetingLink: data.data?.videoCallData?.url ?? data.data?.meetingUrl ?? null,
@@ -86,6 +95,50 @@ export const generateMeetingLink = async ({
   } catch (err) {
     logger.error(`Cal.com generateMeetingLink error (provider ${provider._id}): ${err.message}`);
     throw new ApiError(502, "Failed to generate meeting link from Cal.com");
+  }
+};
+
+/**
+ * Create a new booking on Cal.com.
+ */
+export const createBooking = async ({
+  username,
+  eventTypeSlug,
+  eventTypeId,
+  startTime,
+  name,
+  email,
+  timeZone = "America/New_York",
+  metadata = {},
+}) => {
+  try {
+    const { data } = await calcom.post("/bookings", {
+      username,
+      eventTypeSlug,
+      start: startTime,
+      attendee: {
+        name,
+        email,
+        timeZone,
+      },
+      metadata,
+    }, { headers: { "cal-api-version": CALCOM_BOOKINGS_VERSION } });
+
+    return {
+      calBookingId: data.data?.uid,
+      startTime: data.data?.start,
+      endTime: data.data?.end,
+      meetingLink: data.data?.videoCallData?.url ?? data.data?.meetingUrl ?? null,
+      status: "scheduled",
+    };
+  } catch (err) {
+    logger.error(`Cal.com createBooking error: ${err.message}`);
+    if (err.response) {
+      logger.error(`Cal.com booking response status: ${err.response.status}`);
+      logger.error(`Cal.com booking response data: ${JSON.stringify(err.response.data)}`);
+    }
+    const message = err.response?.data?.message || err.message;
+    throw new ApiError(502, `Failed to create booking on Cal.com: ${message}`);
   }
 };
 

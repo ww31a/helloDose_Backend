@@ -20,27 +20,30 @@ export const getDashboard = async (userId) => {
   const patient = await Patient.findOne({ user: userId }).populate("user", "firstName lastName email avatar");
   if (!patient) throw new ApiError(404, "Patient profile not found");
 
-  // Program data
-  const program = await Program.findOne({ patient: userId, isActive: true });
+  // Find all active programs
+  const activePrograms = await Program.find({ patient: userId, isActive: true });
 
-  // Latest weight log
+  // Latest weight log (used for weight loss calculations)
   const latestWeight = await WeightLog.findOne({ patient: userId }).sort({ loggedAt: -1 });
 
-  // Latest injection log
-  const latestInjection = await InjectionLog.findOne({ patient: userId }).sort({ injectedAt: -1 });
+  // Latest injection log (for general insights if needed, but we'll calculate per-program if we assume injections are linked to programs)
+  // For now, let's assume injection logs are generic but we might want to filter them by medication in the future.
+  // To keep it simple and matching the UI, we'll get the latest injection log.
 
-  // Next appointment
-  const nextAppointment = await Appointment.findOne({
-    patient: userId,
-    status: "scheduled",
-    startTime: { $gt: new Date() },
-  }).sort({ startTime: 1 });
+  const programsData = await Promise.all(activePrograms.map(async (program) => {
+    // Latest injection for THIS medication
+    const latestProgramInjection = await InjectionLog.findOne({ 
+      patient: userId,
+      $or: [
+        { medication: program.medication },
+        // Fallback for old logs without medication field
+        { dosage: { $regex: new RegExp(program.currentDosage, 'i') } }
+      ]
+    }).sort({ injectedAt: -1 });
 
-  // Compute derived fields
-  let programData = null;
-  let healthInsights = null;
+    // Fallback to absolute latest injection if no specific one found
+    const latestInjection = latestProgramInjection || await InjectionLog.findOne({ patient: userId }).sort({ injectedAt: -1 });
 
-  if (program) {
     const currentWeightLoss = program.startWeight && latestWeight
       ? program.startWeight - latestWeight.weightLbs
       : 0;
@@ -58,8 +61,11 @@ export const getDashboard = async (userId) => {
 
     const monthsCompleted = Math.max(0, Math.floor((new Date() - program.startedAt) / (1000 * 60 * 60 * 24 * 30)));
 
-    programData = {
+    const details = {
+      _id: program._id,
       name: program.name,
+      medication: program.medication,
+      type: program.type || "weight-loss",
       startedAt: program.startedAt,
       targetWeightLoss: program.targetWeightLoss,
       currentWeightLoss: Math.round(currentWeightLoss * 10) / 10,
@@ -71,18 +77,16 @@ export const getDashboard = async (userId) => {
       reorderStatus,
     };
 
-    // Health insights
+    // Health insights for this specific program
     const totalLossPercent = program.startWeight && latestWeight
       ? Math.round(((latestWeight.weightLbs - program.startWeight) / program.startWeight) * 100 * 10) / 10
       : 0;
 
-    // Find earliest weight log after program start for "totalLossSince"
     const firstWeightLog = await WeightLog.findOne({
       patient: userId,
       loggedAt: { $gte: program.startedAt },
     }).sort({ loggedAt: 1 });
 
-    // Injection calculations (Assuming 7-day frequency)
     const INJECTION_FREQUENCY_DAYS = 7;
     let daysSinceLastInjection = null;
     let nextInjectionDate = null;
@@ -95,12 +99,7 @@ export const getDashboard = async (userId) => {
       daysUntilNextInjection = Math.max(0, Math.ceil((nextInjectionDate - new Date()) / (1000 * 60 * 60 * 24)));
     }
 
-    healthInsights = {
-      lastLoggedWeight: latestWeight?.weightLbs || null,
-      lastLoggedUnit: latestWeight?.unitLogged || null,
-      lastLoggedAt: latestWeight?.loggedAt || null,
-      totalLossPercent,
-      totalLossSince: firstWeightLog?.loggedAt || null,
+    const insights = {
       currentDosage: program.currentDosage,
       lastInjectionAt: latestInjection?.injectedAt || null,
       daysSinceLastInjection,
@@ -114,9 +113,27 @@ export const getDashboard = async (userId) => {
         ? `In ${Math.max(0, Math.ceil((program.nextRefillDate - new Date()) / (1000 * 60 * 60 * 24 * 7)))} weeks`
         : null,
     };
-  }
+
+    return {
+      ...details,
+      healthInsights: insights,
+    };
+  }));
+
+  // General health insights (latest weight info)
+  const healthInsights = {
+    lastLoggedWeight: latestWeight?.weightLbs || null,
+    lastLoggedUnit: latestWeight?.unitLogged || null,
+    lastLoggedAt: latestWeight?.loggedAt || null,
+  };
 
   // Next appointment data
+  const nextAppointment = await Appointment.findOne({
+    patient: userId,
+    status: "scheduled",
+    startTime: { $gt: new Date() },
+  }).sort({ startTime: 1 });
+
   let appointmentData = null;
   if (nextAppointment) {
     const daysUntil = Math.ceil((nextAppointment.startTime - new Date()) / (1000 * 60 * 60 * 24));
@@ -136,9 +153,9 @@ export const getDashboard = async (userId) => {
     const provider = await Provider.findOne({ user: patient.assignedProvider }).populate("user", "firstName lastName");
     if (provider) {
       providerData = {
-        _id: provider.user._id,
+        _id: provider._id,
         name: `${provider.user.firstName} ${provider.user.lastName}`,
-        title: "Board Certified FNP", // Updated title to match screenshot
+        title: "Board Certified FNP",
         avatar: provider.user.avatar,
       };
     }
@@ -153,7 +170,7 @@ export const getDashboard = async (userId) => {
       cardBrand: patient.cardBrand || "Visa",
       cardLast4: patient.cardLast4 || "1234",
     },
-    program: programData,
+    programs: programsData,
     healthInsights,
     nextAppointment: appointmentData,
     assignedProvider: providerData,
@@ -200,7 +217,7 @@ export const getMyNp = async (userId) => {
 
   return {
     provider: {
-      _id: provider.user._id,
+      _id: provider._id,
       firstName: provider.user.firstName,
       lastName: provider.user.lastName,
       name: `${provider.user.firstName} ${provider.user.lastName}`,

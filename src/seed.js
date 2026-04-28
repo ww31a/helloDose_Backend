@@ -35,6 +35,7 @@ const seed = async () => {
       email: "sarah@hellodose.com",
       role: "provider",
       isActive: true,
+      avatar: "https://i.pravatar.cc/150?u=sarah",
     });
 
     const provider = await Provider.create({
@@ -72,6 +73,7 @@ const seed = async () => {
       patient: patient1User._id,
       name: "Tirzepatide",
       medication: "tirzepatide",
+      type: "weight-loss",
       startedAt: new Date("2025-10-01"),
       currentDosage: "2mg",
       targetWeightLoss: 40,
@@ -82,8 +84,17 @@ const seed = async () => {
       isActive: true,
     });
 
-    patient1.program = program1._id;
-    await patient1.save();
+    const programPeptide = await Program.create({
+      patient: patient1User._id,
+      name: "BPC-157",
+      medication: "BPC-157",
+      type: "peptide",
+      startedAt: new Date("2026-01-01"),
+      currentDosage: "500mcg",
+      nextRefillDate: new Date("2026-05-15"),
+      isActive: true,
+    });
+
 
     // Weight logs for patient 1
     const weightDates = [
@@ -186,6 +197,7 @@ const seed = async () => {
       patient: patient4User._id,
       name: "Tirzepatide",
       medication: "tirzepatide",
+      type: "weight-loss",
       startedAt: new Date("2026-03-01"),
       currentDosage: "2.5mg",
       targetWeightLoss: 25,
@@ -223,10 +235,11 @@ const seed = async () => {
       gender: "Male",
     });
 
-    const program2 = await Program.create({
+    await Program.create({
       patient: patient2User._id,
       name: "Semaglutide",
       medication: "semaglutide",
+      type: "weight-loss",
       startedAt: new Date("2026-01-15"),
       currentDosage: "0.5mg",
       targetWeightLoss: 30,
@@ -236,8 +249,6 @@ const seed = async () => {
       isActive: true,
     });
 
-    patient2.program = program2._id;
-    await patient2.save();
 
     await WeightLog.create({
       patient: patient2User._id,
