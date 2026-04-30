@@ -233,7 +233,7 @@ export const getDashboard = async (providerUserId) => {
   // Enrich appointments with program info
   const enrichedAppointments = await Promise.all(
     futureAppointments.map(async (apt) => {
-      const program = await Program.findOne({ patient: apt.patient._id, isActive: true });
+      const programs = await Program.find({ patient: apt.patient._id, isActive: true });
       return {
         _id: apt._id,
         patientName: `${apt.patient.firstName} ${apt.patient.lastName}`,
@@ -242,7 +242,8 @@ export const getDashboard = async (providerUserId) => {
         meetingLink: apt.meetingLink,
         status: apt.status,
         appointmentType: apt.appointmentType || "Follow-up",
-        programName: program?.name || "Tirzepatide",
+        programNames: programs.length > 0 ? programs.map(p => p.name) : ["Tirzepatide"],
+        programName: programs[0]?.name || "Tirzepatide", // Keep for backward compatibility if needed
       };
     })
   );

@@ -99,20 +99,22 @@ export const getDashboard = async (userId) => {
       daysUntilNextInjection = Math.max(0, Math.ceil((nextInjectionDate - new Date()) / (1000 * 60 * 60 * 24)));
     }
 
-    const insights = {
-      currentDosage: program.currentDosage,
-      lastInjectionAt: latestInjection?.injectedAt || null,
-      daysSinceLastInjection,
-      nextInjectionDate,
-      daysUntilNextInjection,
-      nextInjectionLabel: daysUntilNextInjection !== null 
-        ? (daysUntilNextInjection === 0 ? "Today" : `${daysUntilNextInjection} days`)
-        : null,
-      nextRefillDate: program.nextRefillDate,
-      nextRefillLabel: program.nextRefillDate
-        ? `In ${Math.max(0, Math.ceil((program.nextRefillDate - new Date()) / (1000 * 60 * 60 * 24 * 7)))} weeks`
-        : null,
-    };
+      const insights = {
+        currentDosage: program.currentDosage,
+        lastInjectionAt: latestInjection?.injectedAt || null,
+        daysSinceLastInjection,
+        nextInjectionDate,
+        daysUntilNextInjection,
+        nextInjectionLabel: daysUntilNextInjection !== null 
+          ? (daysUntilNextInjection === 0 ? "Today" : `${daysUntilNextInjection} days`)
+          : null,
+        nextRefillDate: program.nextRefillDate,
+        nextRefillLabel: program.nextRefillDate
+          ? `In ${Math.max(0, Math.ceil((program.nextRefillDate - new Date()) / (1000 * 60 * 60 * 24 * 7)))} weeks`
+          : null,
+        totalLossPercent,
+        startWeight: program.startWeight,
+      };
 
     return {
       ...details,
