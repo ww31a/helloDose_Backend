@@ -1,13 +1,8 @@
-/**
- * Patient Validators
- * Validates patient-related requests
- */
+import Joi from "joi";
 
-// TODO: Define validation schemas
-// - Create patient schema
-// - Update patient schema
-// - Patient profile schema
+// No patient-creation endpoints in MVP — patients are pre-created
+// This file holds any patient-specific request validators needed
 
-module.exports = {
-  // Export validator functions/schemas
-};
+export const updateDeviceTokenSchema = Joi.object({
+  deviceToken: Joi.string().required(),
+});

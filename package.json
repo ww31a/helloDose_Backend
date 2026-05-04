@@ -1,24 +1,37 @@
 {
   "name": "hellodose_backend",
   "version": "1.0.0",
-  "description": "hello dose backend ",
-  "keywords": [
-    "hello_dose",
-    "backend"
-  ],
+  "description": "Hello Dose Backend API",
+  "keywords": ["hello_dose", "backend"],
   "license": "ISC",
   "author": "waqas anwar",
   "type": "module",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node --env-file=.env --watch index.js",
-    "start": "node --env-file=.env index.js"
+    "dev": "node --env-file=.env --watch src/index.js",
+    "start": "node --env-file=.env src/index.js",
+    "seed": "node --env-file=.env src/seed.js",
+    "seed:employees": "node --env-file=.env src/scripts/seedEmployees.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   },
   "dependencies": {
+    "@sendgrid/mail": "^8.1.4",
+    "axios": "^1.7.0",
+    "bcrypt": "^6.0.0",
+    "compression": "^1.7.4",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "mongoose": "^9.4.1",
+    "dayjs": "^1.11.0",
+    "ejs": "^3.1.10",
+    "express": "^5.1.0",
+    "express-mongo-sanitize": "^2.0.0",
+    "express-rate-limit": "^8.0.0",
+    "helmet": "^8.1.0",
+    "joi": "^17.13.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.14.1",
     "prettier": "^3.8.2"
   }
 }

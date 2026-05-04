@@ -1,13 +1,5 @@
-/**
- * Provider Validators
- * Validates provider-related requests
- */
+import Joi from "joi";
 
-// TODO: Define validation schemas
-// - Create provider schema
-// - Update provider schema
-// - Provider profile schema
-
-module.exports = {
-  // Export validator functions/schemas
-};
+export const requestCheckinSchema = Joi.object({
+  patientId: Joi.string().required(),
+});

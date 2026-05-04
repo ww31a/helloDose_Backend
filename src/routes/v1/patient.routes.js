@@ -1,41 +1,32 @@
-const express = require('express');
-const router = express.Router();
+import { Router } from "express";
+import { verifyToken } from "../../middlewares/auth.middleware.js";
+import { allowRoles } from "../../middlewares/role.middleware.js";
+import { validate } from "../../middlewares/validate.middleware.js";
+import { createWeightLogSchema } from "../../validators/weightLog.validator.js";
+import { createInjectionLogSchema } from "../../validators/injectionLog.validator.js";
+import * as patientController from "../../controllers/patient.controller.js";
 
-// TODO: Import patient controller
+const router = Router();
 
-/**
- * @route   GET /api/v1/patients
- * @desc    Get all patients
- * @access  Private
- */
-// router.get('/', patientController.getAllPatients);
+// All patient routes require auth + patient role
+router.use(verifyToken, allowRoles("patient"));
 
-/**
- * @route   GET /api/v1/patients/:id
- * @desc    Get patient by ID
- * @access  Private
- */
-// router.get('/:id', patientController.getPatientById);
+// GET /api/v1/patient/dashboard
+router.get("/dashboard", patientController.getDashboard);
 
-/**
- * @route   POST /api/v1/patients
- * @desc    Create a new patient
- * @access  Private
- */
-// router.post('/', patientController.createPatient);
+// GET /api/v1/patient/my-np
+router.get("/my-np", patientController.getMyNp);
 
-/**
- * @route   PUT /api/v1/patients/:id
- * @desc    Update patient
- * @access  Private
- */
-// router.put('/:id', patientController.updatePatient);
+// POST /api/v1/patient/weight-log
+router.post("/weight-log", validate(createWeightLogSchema), patientController.logWeight);
 
-/**
- * @route   DELETE /api/v1/patients/:id
- * @desc    Delete patient
- * @access  Private
- */
-// router.delete('/:id', patientController.deletePatient);
+// POST /api/v1/patient/injection-log
+router.post("/injection-log", validate(createInjectionLogSchema), patientController.logInjection);
 
-module.exports = router;
+// GET /api/v1/patient/weight-history
+router.get("/weight-history", patientController.getWeightHistory);
+
+// GET /api/v1/patient/injection-history
+router.get("/injection-history", patientController.getInjectionHistory);
+
+export default router;

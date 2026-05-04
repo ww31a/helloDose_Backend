@@ -1,14 +1,27 @@
-/**
- * Rate Limiter Middleware
- * Limits the number of requests from a client
- */
+import rateLimit from "express-rate-limit";
 
-const rateLimiterMiddleware = (req, res, next) => {
-  // TODO: Implement rate limiting logic
-  // - Track requests per IP or user
-  // - Set rate limits (e.g., 100 requests per 15 minutes)
-  // - Return 429 Too Many Requests when limit exceeded
-  next();
-};
+export const otpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  message: {
+    statusCode: 429,
+    data: null,
+    message: "Too many OTP requests, please try again after 15 minutes",
+    success: false,
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
-module.exports = rateLimiterMiddleware;
+export const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: {
+    statusCode: 429,
+    data: null,
+    message: "Too many requests, please try again later",
+    success: false,
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
