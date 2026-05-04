@@ -32,17 +32,14 @@ export const getDashboard = async (userId) => {
 
   const programsData = await Promise.all(activePrograms.map(async (program) => {
     // Latest injection for THIS medication
-    const latestProgramInjection = await InjectionLog.findOne({ 
+    const latestInjection = await InjectionLog.findOne({ 
       patient: userId,
       $or: [
-        { medication: program.medication },
-        // Fallback for old logs without medication field
-        { dosage: { $regex: new RegExp(program.currentDosage, 'i') } }
+        { program: program._id },
+        { program: { $exists: false }, medication: program.medication },
+        { program: { $exists: false }, dosage: { $regex: new RegExp(program.currentDosage, 'i') } }
       ]
     }).sort({ injectedAt: -1 });
-
-    // Fallback to absolute latest injection if no specific one found
-    const latestInjection = latestProgramInjection || await InjectionLog.findOne({ patient: userId }).sort({ injectedAt: -1 });
 
     const currentWeightLoss = program.startWeight && latestWeight
       ? program.startWeight - latestWeight.weightLbs
@@ -250,9 +247,18 @@ export const logWeight = async (userId, weight, unit, loggedAt) => {
 /**
  * Log injection
  */
-export const logInjection = async (userId, site, injectedAt, dosage, notes) => {
+export const logInjection = async (userId, site, injectedAt, dosage, notes, programId, medication) => {
+  // If medication isn't provided, try to fetch it from the program
+  let med = medication;
+  if (!med && programId) {
+    const program = await Program.findById(programId);
+    med = program?.medication;
+  }
+
   const log = await InjectionLog.create({
     patient: userId,
+    program: programId,
+    medication: med || "Unknown",
     site,
     dosage,
     injectedAt,
@@ -265,8 +271,26 @@ export const logInjection = async (userId, site, injectedAt, dosage, notes) => {
 /**
  * Get injection history — all logs sorted by date with summary
  */
-export const getInjectionHistory = async (userId) => {
-  const history = await InjectionLog.find({ patient: userId }).sort({ injectedAt: -1 });
+export const getInjectionHistory = async (userId, programId) => {
+  let query = { patient: userId };
+
+  if (programId) {
+    const program = await Program.findById(programId);
+    if (program) {
+      query = {
+        patient: userId,
+        $or: [
+          { program: programId },
+          { program: { $exists: false }, medication: program.medication },
+          { program: { $exists: false }, dosage: { $regex: new RegExp(program.currentDosage, 'i') } }
+        ]
+      };
+    } else {
+      query.program = programId;
+    }
+  }
+
+  const history = await InjectionLog.find(query).sort({ injectedAt: -1 });
 
   // Calculate monthly progress (Injections this calendar month vs target 4)
   const now = new Date();

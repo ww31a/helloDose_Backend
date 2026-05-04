@@ -6,6 +6,15 @@ const injectionLogSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
+  program: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Program",
+    required: true,
+  },
+  medication: {
+    type: String,
+    required: true,
+  },
   site: {
     type: String,
     enum: ["L_ABDOMEN", "R_ABDOMEN", "L_THIGH", "R_THIGH"],

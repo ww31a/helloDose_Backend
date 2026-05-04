@@ -262,6 +262,20 @@ export const handleWeightLossIntakeForm = async (data) => {
     { new: true }
   );
 
+  if (weight) {
+    const { WeightLog } = await import("../models/weightLog.model.js");
+    const existingLog = await WeightLog.findOne({ patient: user._id, weightLbs: parseFloat(weight) });
+    if (!existingLog) {
+      await WeightLog.create({
+        patient: user._id,
+        weightLbs: parseFloat(weight),
+        unitLogged: "lbs",
+        loggedAt: new Date()
+      });
+      logger.info(`[Vagaro] Created initial WeightLog from Intake form for patient ${user._id} with weight ${weight}`);
+    }
+  }
+
   logger.info(`[Vagaro] Weight Loss Intake Form stored for patient ${patient._id}`);
 };
 
@@ -300,7 +314,7 @@ export const handleDropConsultationForm = async (data) => {
     return;
   }
 
-  await Program.findOneAndUpdate(
+  const updatedProgram = await Program.findOneAndUpdate(
     { _id: program._id },
     {
       $set: {
@@ -313,6 +327,21 @@ export const handleDropConsultationForm = async (data) => {
     },
     { new: true }
   );
+
+  if (startingWeight) {
+    const { WeightLog } = await import("../models/weightLog.model.js");
+    // Only create initial log if they don't have any logs yet, or just log it as the starting baseline
+    const existingLog = await WeightLog.findOne({ patient: user._id, weightLbs: parseFloat(startingWeight) });
+    if (!existingLog) {
+      await WeightLog.create({
+        patient: user._id,
+        weightLbs: parseFloat(startingWeight),
+        unitLogged: "lbs",
+        loggedAt: updatedProgram.startedAt || new Date()
+      });
+      logger.info(`[Vagaro] Created initial WeightLog for patient ${user._id} with starting weight ${startingWeight}`);
+    }
+  }
 
   logger.info(`[Vagaro] DROP Consultation Form stored for program ${program._id}`);
 };
