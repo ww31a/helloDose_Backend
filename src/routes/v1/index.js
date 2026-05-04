@@ -1,24 +1,16 @@
-const express = require('express');
-const router = express.Router();
+import { Router } from "express";
+import authRoutes from "./auth.routes.js";
+import patientRoutes from "./patient.routes.js";
+import providerRoutes from "./provider.routes.js";
+import appointmentRoutes from "./appointment.routes.js";
+import webhookRoutes from "./webhook.routes.js";
 
-const authRoutes = require('./auth.routes');
-const patientRoutes = require('./patient.routes');
-const providerRoutes = require('./provider.routes');
-const appointmentRoutes = require('./appointment.routes');
-const weightLogRoutes = require('./weightLog.routes');
-const injectionLogRoutes = require('./injectionLog.routes');
-const chatRoutes = require('./chat.routes');
-const programRoutes = require('./program.routes');
-const webhookRoutes = require('./webhook.routes');
+const router = Router();
 
-router.use('/auth', authRoutes);
-router.use('/patients', patientRoutes);
-router.use('/providers', providerRoutes);
-router.use('/appointments', appointmentRoutes);
-router.use('/weight-logs', weightLogRoutes);
-router.use('/injection-logs', injectionLogRoutes);
-router.use('/chat', chatRoutes);
-router.use('/programs', programRoutes);
-router.use('/webhooks', webhookRoutes);
+router.use("/auth", authRoutes);
+router.use("/patient", patientRoutes);
+router.use("/provider", providerRoutes);
+router.use("/appointments", appointmentRoutes);
+router.use("/webhooks", webhookRoutes);
 
-module.exports = router;
+export default router;

@@ -1,16 +1,13 @@
-/**
- * Role-based Access Control Middleware
- * Checks user role and permissions
- */
+import { ApiError } from "../utils/ApiError.js";
 
-const roleMiddleware = (...allowedRoles) => {
+export const allowRoles = (...roles) => {
   return (req, res, next) => {
-    // TODO: Implement role checking logic
-    // - Check if req.user exists
-    // - Verify req.user.role is in allowedRoles
-    // - Return 403 if unauthorized
+    if (!req.user) {
+      throw new ApiError(401, "Authentication required");
+    }
+    if (!roles.includes(req.user.role)) {
+      throw new ApiError(403, "You do not have permission to access this resource");
+    }
     next();
   };
 };
-
-module.exports = roleMiddleware;

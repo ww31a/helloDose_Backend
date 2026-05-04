@@ -1,0 +1,80 @@
+# Unified Frontend Integration Guide
+
+This guide provides all the technical details required to integrate your React Native frontend with the Hello Dose backend.
+
+---
+
+## 🔐 1. Authentication (Shared)
+
+### Request OTP
+- **URL**: `POST /api/v1/auth/request-otp`
+- **Body**: `{ "email": "user@example.com" }`
+
+### Verify OTP & Login
+- **URL**: `POST /api/v1/auth/verify-otp`
+- **Body**: `{ "email": "user@example.com", "otp": "123456" }`
+- **Response**: Returns `accessToken` (JWT) and `role` (`patient` or `provider`).
+
+---
+
+## 📱 2. Patient App (User Side)
+
+### Home Dashboard
+- **URL**: `GET /api/v1/patient/dashboard`
+- **Key Data**:
+    - `currentDosage`: The dose (e.g., "5.0 mg").
+    - `program`: Includes `monthsCompleted` and `durationMonths`.
+    - `healthInsights`: `nextRefillLabel` (e.g., "In 3 weeks").
+    - `nextAppointment`: Friendly `label` (e.g., "In 2 days").
+
+### Submit Log
+- **Weight**: `POST /api/v1/patient/weight-log` (`{ "weight": 185, "unit": "lbs" }`)
+- **Injection**: `POST /api/v1/patient/injection-log` (`{ "dosage": "5.0", "site": "L_ABDOMEN" }`)
+
+### Scheduling (Cal.com)
+- **Get Slots**: `GET /api/v1/appointments/slots?date=YYYY-MM-DD`
+- **Book**: `POST /api/v1/appointments/book` (`{ "startTime": "ISO_DATE", "providerId": "ID" }`)
+
+---
+
+## 👩‍⚕️ 3. Provider App (NP Side)
+
+### Home Page
+- **URL**: `GET /api/v1/provider/dashboard`
+- **Key Data**:
+    - `appointmentsTodayCount`: Integer for header.
+    - `nextAppointment`: Object for the "Next Up" card.
+    - `upcomingToday`: Array of remaining appointments.
+
+### Active Patients List
+- **URL**: `GET /api/v1/provider/patients`
+- **Relative Dates**: Use `healthInsights.lastLoggedLabel` (e.g., "7 days ago").
+- **Demographics**: Use `patient.age` and `patient.gender`.
+
+### Patient Profile
+- **URL**: `GET /api/v1/provider/patients/:id`
+- **History**: `weightHistory` and `injectionHistory` (last 30 entries).
+- **Refills**: `program.nextRefillLabel`.
+
+### Provider Profile
+- **URL**: `GET /api/v1/provider/profile`
+- **Fields**: `npi`, `title`, `activePatientsCount`.
+- **Shift Status**: `availabilityStatus` ("Currently On Shift") and `availabilityLabel` ("Ends at 5:00 PM today").
+
+### Manage Availability (Live Cal.com Sync)
+- **Fetch**: `GET /api/v1/provider/availability`
+- **Update**: `PATCH /api/v1/provider/availability`
+- **Payload Format**:
+```json
+{
+  "monday": { "enabled": true, "slots": [{ "start": "09:00", "end": "17:00" }] },
+  "tuesday": { "enabled": false, "slots": [] }
+}
+```
+
+---
+
+## 💡 Integration Tips
+- **Authorization**: Always send the header `Authorization: Bearer <TOKEN>`.
+- **Timezone**: The backend assumes `America/New_York` for all daily summaries.
+- **Images**: If an `avatar` is empty, use your default UI placeholder.

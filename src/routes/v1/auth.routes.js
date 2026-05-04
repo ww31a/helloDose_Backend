@@ -1,27 +1,22 @@
-const express = require('express');
-const router = express.Router();
+import { Router } from "express";
+import { validate } from "../../middlewares/validate.middleware.js";
+import { verifyToken } from "../../middlewares/auth.middleware.js";
+import { otpLimiter } from "../../middlewares/rateLimiter.middleware.js";
+import { requestOtpSchema, verifyOtpSchema, refreshTokenSchema } from "../../validators/auth.validator.js";
+import * as authController from "../../controllers/auth.controller.js";
 
-// TODO: Import auth controller
+const router = Router();
 
-/**
- * @route   POST /api/v1/auth/register
- * @desc    Register a new user
- * @access  Public
- */
-// router.post('/register', authController.register);
+// POST /api/v1/auth/request-otp
+router.post("/request-otp", otpLimiter, validate(requestOtpSchema), authController.requestOtp);
 
-/**
- * @route   POST /api/v1/auth/login
- * @desc    Login user
- * @access  Public
- */
-// router.post('/login', authController.login);
+// POST /api/v1/auth/verify-otp
+router.post("/verify-otp", validate(verifyOtpSchema), authController.verifyOtp);
 
-/**
- * @route   POST /api/v1/auth/logout
- * @desc    Logout user
- * @access  Private
- */
-// router.post('/logout', authController.logout);
+// POST /api/v1/auth/refresh-token
+router.post("/refresh-token", validate(refreshTokenSchema), authController.refreshToken);
 
-module.exports = router;
+// POST /api/v1/auth/logout
+router.post("/logout", verifyToken, authController.logout);
+
+export default router;
