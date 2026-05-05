@@ -2,7 +2,10 @@
   "name": "hellodose_backend",
   "version": "1.0.0",
   "description": "Hello Dose Backend API",
-  "keywords": ["hello_dose", "backend"],
+  "keywords": [
+    "hello_dose",
+    "backend"
+  ],
   "license": "ISC",
   "author": "waqas anwar",
   "type": "module",
@@ -18,7 +21,7 @@
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.4",
-    "axios": "^1.7.0",
+    "axios": "^1.16.0",
     "bcrypt": "^6.0.0",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.7",
