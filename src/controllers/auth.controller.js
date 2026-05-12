@@ -3,7 +3,7 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 import * as authService from "../services/auth.service.js";
 
 export const requestOtp = asyncHandler(async (req, res) => {
-  const result = await authService.requestOtp(req.body.email);
+  const result = await authService.requestOtp(req.body.email, req.body.role);
   res.status(200).json(new ApiResponse(200, result, "OTP sent to your email"));
 });
 

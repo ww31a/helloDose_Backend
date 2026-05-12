@@ -1,11 +1,15 @@
 import mongoose from "mongoose";
 
-const programSchema = new mongoose.Schema(
+const planSchema = new mongoose.Schema(
   {
     patient: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+    assignedProvider: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
     },
     name: { type: String, required: true },
     medication: {
@@ -31,4 +35,4 @@ const programSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export const Program = mongoose.model("Program", programSchema);
+export const Plan = mongoose.model("Plan", planSchema);

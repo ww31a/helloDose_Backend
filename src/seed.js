@@ -6,7 +6,7 @@ import mongoose from "mongoose";
 import { User } from "./models/user.model.js";
 import { Patient } from "./models/patient.model.js";
 import { Provider } from "./models/provider.model.js";
-import { Program } from "./models/program.model.js";
+import { Plan } from "./models/plan.model.js";
 import { WeightLog } from "./models/weightLog.model.js";
 import { InjectionLog } from "./models/injectionLog.model.js";
 import { Appointment } from "./models/appointment.model.js";
@@ -21,7 +21,7 @@ const seed = async () => {
       User.deleteMany({}),
       Patient.deleteMany({}),
       Provider.deleteMany({}),
-      Program.deleteMany({}),
+      Plan.deleteMany({}),
       WeightLog.deleteMany({}),
       InjectionLog.deleteMany({}),
       Appointment.deleteMany({}),
@@ -63,16 +63,15 @@ const seed = async () => {
 
     const patient1 = await Patient.create({
       user: patient1User._id,
-      assignedProvider: providerUser._id,
       vagaro_id: "vagaro_cust_001",
       age: 34,
       gender: "Female",
     });
 
-    const program1 = await Program.create({
+    const plan1 = await Plan.create({
       patient: patient1User._id,
+      assignedProvider: providerUser._id,
       name: "Tirzepatide",
-      medication: "tirzepatide",
       type: "weight-loss",
       startedAt: new Date("2025-10-01"),
       currentDosage: "2mg",
@@ -84,10 +83,10 @@ const seed = async () => {
       isActive: true,
     });
 
-    const programPeptide = await Program.create({
+    const planPeptide = await Plan.create({
       patient: patient1User._id,
+      assignedProvider: providerUser._id,
       name: "BPC-157",
-      medication: "BPC-157",
       type: "peptide",
       startedAt: new Date("2026-01-01"),
       currentDosage: "500mcg",
@@ -152,7 +151,6 @@ const seed = async () => {
 
     await Patient.create({
       user: patient3User._id,
-      assignedProvider: providerUser._id,
       vagaro_id: "vagaro_cust_003",
       age: 41,
       gender: "Male",
@@ -187,16 +185,15 @@ const seed = async () => {
 
     await Patient.create({
       user: patient4User._id,
-      assignedProvider: providerUser._id,
       vagaro_id: "vagaro_cust_004",
       age: 29,
       gender: "Female",
     });
 
-    await Program.create({
+    await Plan.create({
       patient: patient4User._id,
+      assignedProvider: providerUser._id,
       name: "Tirzepatide",
-      medication: "tirzepatide",
       type: "weight-loss",
       startedAt: new Date("2026-03-01"),
       currentDosage: "2.5mg",
@@ -229,16 +226,15 @@ const seed = async () => {
 
     const patient2 = await Patient.create({
       user: patient2User._id,
-      assignedProvider: providerUser._id,
       vagaro_id: "vagaro_cust_002",
       age: 28,
       gender: "Male",
     });
 
-    await Program.create({
+    await Plan.create({
       patient: patient2User._id,
+      assignedProvider: providerUser._id,
       name: "Semaglutide",
-      medication: "semaglutide",
       type: "weight-loss",
       startedAt: new Date("2026-01-15"),
       currentDosage: "0.5mg",

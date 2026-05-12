@@ -7,6 +7,6 @@ export const createInjectionLogSchema = Joi.object({
   dosage: Joi.string().required(),
   injectedAt: Joi.date().iso().max("now").required(),
   notes: Joi.string().max(500).optional().allow(""),
-  programId: Joi.string().required(),
+  planId: Joi.string().required(),
   medication: Joi.string().optional(),
 });
