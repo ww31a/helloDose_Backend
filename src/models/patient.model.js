@@ -8,21 +8,15 @@ const patientSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
-    assignedProvider: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-    },
     vagaro_id: { type: String, index: true },
-    program: {
+    plan: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Program",
+      ref: "Plan",
     },
     age: { type: Number },
     gender: { type: String },
     height: { type: String },
     primaryGoal: { type: String },
-    cardBrand: { type: String, default: "" },
-    cardLast4: { type: String, default: "" },
     npCheckinDate: { type: Date },
   },
   { timestamps: true }

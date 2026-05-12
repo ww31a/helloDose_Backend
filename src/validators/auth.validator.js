@@ -2,6 +2,7 @@ import Joi from "joi";
 
 export const requestOtpSchema = Joi.object({
   email: Joi.string().email().required(),
+  role: Joi.string().valid("patient", "provider").optional(),
 });
 
 export const verifyOtpSchema = Joi.object({

@@ -6,9 +6,9 @@ const injectionLogSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
-  program: {
+  plan: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Program",
+    ref: "Plan",
     required: true,
   },
   medication: {

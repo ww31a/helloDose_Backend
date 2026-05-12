@@ -1,6 +1,6 @@
 import { Patient } from "../models/patient.model.js";
 import { Provider } from "../models/provider.model.js";
-import { Program } from "../models/program.model.js";
+import { Plan } from "../models/plan.model.js";
 import { WeightLog } from "../models/weightLog.model.js";
 import { InjectionLog } from "../models/injectionLog.model.js";
 import { Appointment } from "../models/appointment.model.js";
@@ -19,8 +19,11 @@ const PROVIDER_TIMEZONE = "America/New_York";
  * Get all patients assigned to this provider — enriched with full card data
  */
 export const getPatients = async (providerUserId) => {
-  // Get all patients assigned to this provider
-  const patients = await Patient.find({ assignedProvider: providerUserId }).populate(
+  // Get all unique patients who have at least one active plan assigned to this provider
+  const plansWithProvider = await Plan.find({ assignedProvider: providerUserId });
+  const patientUserIds = [...new Set(plansWithProvider.map(p => p.patient))];
+
+  const patients = await Patient.find({ user: { $in: patientUserIds } }).populate(
     "user",
     "firstName lastName email avatar"
   );
@@ -29,9 +32,9 @@ export const getPatients = async (providerUserId) => {
     patients.map(async (patient) => {
       const userId = patient.user._id;
 
-      // Active Programs
-      const activePrograms = await Program.find({ patient: userId, isActive: true });
-      const mainProgram = activePrograms[0]; // Use first one for stats logic
+      // Active Plans
+      const activePlans = await Plan.find({ patient: userId, isActive: true });
+      const mainPlan = activePlans.find(p => p.assignedProvider?.toString() === providerUserId.toString()) || activePlans[0]; // Prefer the plan assigned to this provider
 
       // Latest weight
       const latestWeight = await WeightLog.findOne({ patient: userId }).sort({ loggedAt: -1 });
@@ -48,21 +51,21 @@ export const getPatients = async (providerUserId) => {
       }).sort({ startTime: 1 });
 
       // Compute derived fields
-      let programData = null;
+      let planData = null;
       let healthInsights = null;
 
-      if (mainProgram) {
+      if (mainPlan) {
         const currentWeightLoss =
-          mainProgram.startWeight && latestWeight ? mainProgram.startWeight - latestWeight.weightLbs : 0;
-        const progressPercent = mainProgram.targetWeightLoss
-          ? Math.min(100, Math.round((currentWeightLoss / mainProgram.targetWeightLoss) * 100))
+          mainPlan.startWeight && latestWeight ? mainPlan.startWeight - latestWeight.weightLbs : 0;
+        const progressPercent = mainPlan.targetWeightLoss
+          ? Math.min(100, Math.round((currentWeightLoss / mainPlan.targetWeightLoss) * 100))
           : 0;
 
         let reorderStatus = "not_eligible";
         let nextRefillLabel = null;
-        if (mainProgram.nextRefillDate) {
+        if (mainPlan.nextRefillDate) {
           const daysToRefill = Math.ceil(
-            (mainProgram.nextRefillDate - new Date()) / (1000 * 60 * 60 * 24)
+            (mainPlan.nextRefillDate - new Date()) / (1000 * 60 * 60 * 24)
           );
           if (daysToRefill <= 0) {
             reorderStatus = "eligible_now";
@@ -73,23 +76,23 @@ export const getPatients = async (providerUserId) => {
           }
         }
 
-        programData = {
-          name: mainProgram.name,
-          startedAt: mainProgram.startedAt,
-          targetWeightLoss: mainProgram.targetWeightLoss,
+        planData = {
+          name: mainPlan.name,
+          startedAt: mainPlan.startedAt,
+          targetWeightLoss: mainPlan.targetWeightLoss,
           currentWeightLoss: Math.round(currentWeightLoss * 10) / 10,
           progressPercent,
-          monthsCompleted: Math.max(0, Math.floor((new Date() - mainProgram.startedAt) / (1000 * 60 * 60 * 24 * 30))),
-          durationMonths: mainProgram.durationMonths || 8,
-          lastReorderDate: mainProgram.lastReorderDate,
+          monthsCompleted: Math.max(0, Math.floor((new Date() - mainPlan.startedAt) / (1000 * 60 * 60 * 24 * 30))),
+          durationMonths: mainPlan.durationMonths || 8,
+          lastReorderDate: mainPlan.lastReorderDate,
           reorderStatus,
           nextRefillLabel,
         };
 
         const totalLossPercent =
-          mainProgram.startWeight && latestWeight
+          mainPlan.startWeight && latestWeight
             ? Math.round(
-                ((latestWeight.weightLbs - mainProgram.startWeight) / mainProgram.startWeight) * 100 * 10
+                ((latestWeight.weightLbs - mainPlan.startWeight) / mainPlan.startWeight) * 100 * 10
               ) / 10
             : 0;
 
@@ -108,9 +111,9 @@ export const getPatients = async (providerUserId) => {
           lastLoggedAt: latestWeight?.loggedAt || null,
           lastLoggedLabel,
           totalLossPercent,
-          currentDosage: mainProgram.currentDosage,
+          currentDosage: mainPlan.currentDosage,
           lastInjectionAt: latestInjection?.injectedAt || null,
-          nextRefillDate: mainProgram.nextRefillDate,
+          nextRefillDate: mainPlan.nextRefillDate,
         };
       }
 
@@ -135,8 +138,8 @@ export const getPatients = async (providerUserId) => {
           age: patient.age,
           gender: patient.gender,
         },
-        program: programData,
-        activePrograms: activePrograms.map(p => ({ name: p.name })),
+        plan: planData,
+        activePlans: activePlans.map(p => ({ name: p.name })),
         healthInsights,
         nextAppointment: appointmentData,
       };
@@ -150,9 +153,14 @@ export const getPatients = async (providerUserId) => {
  * Get single patient full profile (provider must own the patient)
  */
 export const getPatientDetail = async (providerUserId, patientUserId) => {
+  const plans = await Plan.find({ patient: patientUserId, assignedProvider: providerUserId });
+  
+  if (plans.length === 0) {
+    throw new ApiError(404, "Patient not found or not assigned to you for any plan");
+  }
+
   const patient = await Patient.findOne({
     user: patientUserId,
-    assignedProvider: providerUserId,
   }).populate("user", "firstName lastName email avatar");
 
   if (!patient) {
@@ -186,14 +194,14 @@ export const getPatientDetail = async (providerUserId, patientUserId) => {
  * Request check-in — send push notification to patient
  */
 export const requestCheckin = async (providerUserId, patientId) => {
-  // Verify patient belongs to this provider
-  const patient = await Patient.findOne({
-    user: patientId,
+  // Verify patient belongs to this provider via at least one plan
+  const plan = await Plan.findOne({
+    patient: patientId,
     assignedProvider: providerUserId,
   });
 
-  if (!patient) {
-    throw new ApiError(404, "Patient not found or not assigned to you");
+  if (!plan) {
+    throw new ApiError(404, "Patient not found or not assigned to you for any plan");
   }
 
   const patientUser = await User.findById(patientId);
@@ -230,10 +238,10 @@ export const getDashboard = async (providerUserId) => {
     .sort({ startTime: 1 })
     .populate("patient", "firstName lastName avatar");
 
-  // Enrich appointments with program info
+  // Enrich appointments with plan info
   const enrichedAppointments = await Promise.all(
     futureAppointments.map(async (apt) => {
-      const programs = await Program.find({ patient: apt.patient._id, isActive: true });
+      const plans = await Plan.find({ patient: apt.patient._id, isActive: true });
       return {
         _id: apt._id,
         patientName: `${apt.patient.firstName} ${apt.patient.lastName}`,
@@ -242,8 +250,8 @@ export const getDashboard = async (providerUserId) => {
         meetingLink: apt.meetingLink,
         status: apt.status,
         appointmentType: apt.appointmentType || "Follow-up",
-        programNames: programs.length > 0 ? programs.map(p => p.name) : ["Tirzepatide"],
-        programName: programs[0]?.name || "Tirzepatide", // Keep for backward compatibility if needed
+        planNames: plans.length > 0 ? plans.map(p => p.name) : ["Tirzepatide"],
+        planName: plans[0]?.name || "Tirzepatide", // Keep for backward compatibility if needed
       };
     })
   );
@@ -251,8 +259,10 @@ export const getDashboard = async (providerUserId) => {
   const nextAppointment = enrichedAppointments[0] || null;
   const upcomingAppointments = enrichedAppointments.slice(1);
 
-  // Active patients (basic count and list for search)
-  const patientsCount = await Patient.countDocuments({ assignedProvider: providerUserId });
+  // Active patients (basic count)
+  const plansWithProvider = await Plan.find({ assignedProvider: providerUserId });
+  const patientUserIds = [...new Set(plansWithProvider.map(p => p.patient.toString()))];
+  const patientsCount = patientUserIds.length;
 
   return {
     providerName: provider.firstName,
@@ -272,7 +282,9 @@ export const getProfile = async (providerUserId) => {
   );
   if (!provider) throw new ApiError(404, "Provider not found");
 
-  const patientsCount = await Patient.countDocuments({ assignedProvider: providerUserId });
+  const plansWithProvider = await Plan.find({ assignedProvider: providerUserId });
+  const patientUserIds = [...new Set(plansWithProvider.map(p => p.patient.toString()))];
+  const patientsCount = patientUserIds.length;
 
   // Calculate "On Shift" status
   let isCurrentlyOnShift = false;

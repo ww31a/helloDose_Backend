@@ -6,8 +6,12 @@ import jwt from "jsonwebtoken";
 /**
  * Request OTP — find user by email, generate OTP, send email
  */
-export const requestOtp = async (email) => {
-  const user = await User.findOne({ email: email.toLowerCase() });
+export const requestOtp = async (email, role) => {
+  const query = { email: email.toLowerCase() };
+  if (role) {
+    query.role = role;
+  }
+  const user = await User.findOne(query);
   if (!user) {
     throw new ApiError(404, "No account found with this email");
   }

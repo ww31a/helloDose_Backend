@@ -131,3 +131,7 @@ tasks.md
 src/scripts/*
 
 scratch/*
+
+*/seeds
+
+src/seed.js

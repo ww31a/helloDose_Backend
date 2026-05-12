@@ -19,14 +19,14 @@ export const logWeight = asyncHandler(async (req, res) => {
 });
 
 export const logInjection = asyncHandler(async (req, res) => {
-  const { site, injectedAt, dosage, notes, internalNotes, programId, medication } = req.body;
+  const { site, injectedAt, dosage, notes, internalNotes, planId, medication } = req.body;
   const data = await patientService.logInjection(
     req.user._id,
     site,
     injectedAt,
     dosage,
     notes || internalNotes,
-    programId,
+    planId,
     medication
   );
   res.status(201).json(new ApiResponse(201, data, "Injection logged successfully"));
@@ -38,7 +38,7 @@ export const getWeightHistory = asyncHandler(async (req, res) => {
 });
 
 export const getInjectionHistory = asyncHandler(async (req, res) => {
-  const { programId } = req.query;
-  const data = await patientService.getInjectionHistory(req.user._id, programId);
+  const { planId } = req.query;
+  const data = await patientService.getInjectionHistory(req.user._id, planId);
   res.status(200).json(new ApiResponse(200, data, "Injection history fetched"));
 });
