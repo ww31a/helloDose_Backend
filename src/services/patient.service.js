@@ -66,6 +66,8 @@ export const getDashboard = async (userId) => {
         planProviderData = {
           _id: provider._id,
           name: `${provider.user.firstName} ${provider.user.lastName}`,
+          firstName: provider.user.firstName,
+          lastName: provider.user.lastName,
           title: provider.title || "Board Certified FNP",
           avatar: provider.user.avatar,
         };
@@ -105,11 +107,22 @@ export const getDashboard = async (userId) => {
     let daysUntilNextInjection = null;
 
     if (latestInjection) {
-      daysSinceLastInjection = Math.floor((new Date() - latestInjection.injectedAt) / (1000 * 60 * 60 * 24));
+      daysSinceLastInjection = dayjs().startOf('day').diff(dayjs(latestInjection.injectedAt).startOf('day'), 'day');
       nextInjectionDate = new Date(latestInjection.injectedAt);
       nextInjectionDate.setDate(nextInjectionDate.getDate() + INJECTION_FREQUENCY_DAYS);
       daysUntilNextInjection = Math.max(0, Math.ceil((nextInjectionDate - new Date()) / (1000 * 60 * 60 * 24)));
     }
+
+    // Injection frequency progress (strictly per month)
+    const frequency = plan.frequency || 4;
+    const now = new Date();
+    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const currentPeriodLogsCount = await InjectionLog.countDocuments({
+      patient: userId,
+      plan: plan._id,
+      injectedAt: { $gte: periodStart }
+    });
 
       const insights = {
         currentDosage: plan.currentDosage,
@@ -126,6 +139,12 @@ export const getDashboard = async (userId) => {
           : null,
         totalLossPercent,
         startWeight: plan.startWeight,
+        injectionFrequency: {
+          count: currentPeriodLogsCount,
+          total: frequency,
+          label: `${currentPeriodLogsCount} of ${frequency} injections`,
+          isLimitReached: currentPeriodLogsCount >= frequency
+        }
       };
 
     return {
@@ -156,8 +175,8 @@ export const getDashboard = async (userId) => {
       daysUntil,
       meetingLink: nextAppointment.meetingLink,
       status: nextAppointment.status,
-      formattedDate: dayjs(nextAppointment.startTime).tz("America/New_York").format("MMM D, YYYY"),
-      formattedTime: dayjs(nextAppointment.startTime).tz("America/New_York").format("h:mm A")
+      formattedDate: dayjs(nextAppointment.startTime).format("MMM D, YYYY"),
+      formattedTime: dayjs(nextAppointment.startTime).format("h:mm A")
     };
   }
 
@@ -170,6 +189,8 @@ export const getDashboard = async (userId) => {
       providerData = {
         _id: provider._id,
         name: `${provider.user.firstName} ${provider.user.lastName}`,
+        firstName: provider.user.firstName,
+        lastName: provider.user.lastName,
         title: provider.title || "Board Certified FNP",
         avatar: provider.user.avatar,
       };
@@ -267,11 +288,30 @@ export const logWeight = async (userId, weight, unit, loggedAt) => {
  * Log injection
  */
 export const logInjection = async (userId, site, injectedAt, dosage, notes, planId, medication) => {
+  // 1. Fetch plan and enforce frequency limit
+  const plan = planId ? await Plan.findById(planId) : null;
+  if (plan) {
+    const frequency = plan.frequency || 4;
+    
+    // Period: current calendar month
+    const now = new Date();
+    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const currentPeriodLogs = await InjectionLog.countDocuments({
+      patient: userId,
+      plan: planId,
+      injectedAt: { $gte: periodStart }
+    });
+
+    if (currentPeriodLogs >= frequency) {
+      throw new ApiError(400, `You have reached your limit of ${frequency} injections for this period.`);
+    }
+  }
+
   // If medication isn't provided, try to fetch it from the plan
   let med = medication;
-  if (!med && planId) {
-    const plan = await Plan.findById(planId);
-    med = plan?.medication;
+  if (!med && plan) {
+    med = plan.medication;
   }
 
   const log = await InjectionLog.create({
@@ -311,18 +351,27 @@ export const getInjectionHistory = async (userId, planId) => {
 
   const history = await InjectionLog.find(query).sort({ injectedAt: -1 });
 
-  // Calculate monthly progress (Injections this calendar month vs target 4)
+  // Calculate progress based on plan frequency (strictly per month)
+  let frequency = 4;
+  if (planId) {
+    const plan = await Plan.findById(planId);
+    if (plan) {
+      frequency = plan.frequency || 4;
+    }
+  }
+
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const thisMonthInjections = history.filter((log) => log.injectedAt >= startOfMonth).length;
+  const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const currentPeriodInjections = history.filter((log) => log.injectedAt >= periodStart).length;
 
   return {
     history,
     monthlyProgress: {
-      count: thisMonthInjections,
-      total: 4,
-      label: `${thisMonthInjections} of 4 injections`,
-      percentage: Math.round((thisMonthInjections / 4) * 100),
+      count: currentPeriodInjections,
+      total: frequency,
+      label: `${currentPeriodInjections} of ${frequency} injections`,
+      percentage: Math.min(100, Math.round((currentPeriodInjections / frequency) * 100)),
     },
   };
 };
@@ -343,8 +392,21 @@ export const getWeightHistory = async (userId) => {
     (log) => log.loggedAt >= startOfMonth
   );
 
-  // Format entries (day + time + weight)
-  const formattedLogs = thisMonthLogs.map((log) => ({
+  // Format all entries for the chart
+  const allFormattedLogs = history.map((log) => ({
+    id: log._id,
+    weight: log.weightLbs,
+    unit: log.unitLogged,
+    date: log.loggedAt,
+    day: log.loggedAt.getDate(),
+    time: log.loggedAt.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  }));
+
+  // Format only this month's logs for the list
+  const formattedThisMonthLogs = thisMonthLogs.map((log) => ({
     id: log._id,
     weight: log.weightLbs,
     unit: log.unitLogged,
@@ -371,14 +433,15 @@ export const getWeightHistory = async (userId) => {
   }
 
   return {
-    history: formattedLogs,
+    history: formattedThisMonthLogs,
+    allHistory: allFormattedLogs,
     monthlySummary: {
       count: thisMonthLogs.length,
       change: monthlyChange,
     },
     npCheckinDate: patient?.npCheckinDate || null,
     formattedNpCheckinDate: patient?.npCheckinDate 
-      ? dayjs(patient.npCheckinDate).tz("America/New_York").format("MMM D, YYYY") 
+      ? dayjs(patient.npCheckinDate).format("MMM D, YYYY") 
       : null,
   };
 };

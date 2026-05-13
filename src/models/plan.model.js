@@ -12,10 +12,6 @@ const planSchema = new mongoose.Schema(
       ref: "User",
     },
     name: { type: String, required: true },
-    medication: {
-      type: String,
-      required: true,
-    },
     startedAt: { type: Date, required: true },
     currentDosage: { type: String, default: "" },
     targetWeightLoss: { type: Number },
@@ -30,6 +26,7 @@ const planSchema = new mongoose.Schema(
       enum: ["weight-loss", "peptide"],
       default: "weight-loss",
     },
+    frequency: { type: Number, default: 4 },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
