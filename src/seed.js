@@ -66,6 +66,7 @@ const seed = async () => {
       vagaro_id: "vagaro_cust_001",
       age: 34,
       gender: "Female",
+      npCheckinDate: new Date("2026-03-30"),
     });
 
     const plan1 = await Plan.create({
@@ -80,6 +81,7 @@ const seed = async () => {
       lastReorderDate: new Date("2026-02-10"),
       nextRefillDate: new Date("2026-04-14"), // Eligible Today
       vagaro_id: "vagaro_svc_001",
+      frequency: 4,
       isActive: true,
     });
 
@@ -91,6 +93,7 @@ const seed = async () => {
       startedAt: new Date("2026-01-01"),
       currentDosage: "500mcg",
       nextRefillDate: new Date("2026-05-15"),
+      frequency: 2,
       isActive: true,
     });
 
@@ -118,6 +121,8 @@ const seed = async () => {
     // Injection logs for patient 1
     await InjectionLog.create({
       patient: patient1User._id,
+      plan: plan1._id,
+      medication: "Tirzepatide",
       site: "R_ABDOMEN",
       dosage: "2mg",
       injectedAt: new Date("2026-04-13T14:30:00.000Z"), // Yesterday
@@ -154,6 +159,7 @@ const seed = async () => {
       vagaro_id: "vagaro_cust_003",
       age: 41,
       gender: "Male",
+      npCheckinDate: new Date("2026-04-01"),
     });
 
     await WeightLog.create({

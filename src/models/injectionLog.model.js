@@ -13,7 +13,6 @@ const injectionLogSchema = new mongoose.Schema({
   },
   medication: {
     type: String,
-    required: true,
   },
   site: {
     type: String,
