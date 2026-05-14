@@ -22,3 +22,13 @@ export const logout = asyncHandler(async (req, res) => {
   await authService.logout(req.user._id);
   res.status(200).json(new ApiResponse(200, null, "Logged out successfully"));
 });
+
+export const completeOnboarding = asyncHandler(async (req, res) => {
+  const result = await authService.completeOnboarding(req.user._id);
+  res.status(200).json(new ApiResponse(200, result, "Onboarding completed successfully"));
+});
+
+export const uploadAvatar = asyncHandler(async (req, res) => {
+  const result = await authService.uploadAvatar(req.user._id, req.file?.buffer);
+  res.status(200).json(new ApiResponse(200, result, "Avatar uploaded successfully"));
+});

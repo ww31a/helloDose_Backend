@@ -18,6 +18,11 @@ const patientSchema = new mongoose.Schema(
     height: { type: String },
     primaryGoal: { type: String },
     npCheckinDate: { type: Date },
+    onboardingProgress: {
+      photoCompleted: { type: Boolean, default: false },
+      plansCompleted: { type: Boolean, default: false },
+      startWeightCompleted: { type: Boolean, default: false },
+    },
   },
   { timestamps: true }
 );

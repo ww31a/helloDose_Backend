@@ -1,5 +1,7 @@
 import { User } from "../models/user.model.js";
+import { Patient } from "../models/patient.model.js";
 import { ApiError } from "../utils/ApiError.js";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { sendOtpEmail } from "./email.service.js";
 import jwt from "jsonwebtoken";
 
@@ -68,6 +70,10 @@ export const verifyOtp = async (email, candidateOtp, deviceToken) => {
   user.refreshToken = refreshToken;
   await user.save();
 
+  const patient = user.role === "patient"
+    ? await Patient.findOne({ user: user._id }).select("onboardingProgress")
+    : null;
+
   return {
     accessToken,
     refreshToken,
@@ -78,6 +84,8 @@ export const verifyOtp = async (email, candidateOtp, deviceToken) => {
       email: user.email,
       role: user.role,
       avatar: user.avatar,
+      onboardingCompleted: user.onboardingCompleted,
+      ...(patient && { onboardingProgress: patient.onboardingProgress }),
     },
   };
 };
@@ -122,4 +130,57 @@ export const logout = async (userId) => {
     user.refreshToken = null;
     await user.save();
   }
+};
+
+/**
+ * Complete onboarding — set onboardingCompleted to true
+ */
+export const completeOnboarding = async (userId) => {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+  user.onboardingCompleted = true;
+  await user.save();
+
+  let onboardingProgress;
+  if (user.role === "patient") {
+    const patient = await Patient.findOneAndUpdate(
+      { user: userId },
+      {
+        onboardingProgress: {
+          photoCompleted: true,
+          plansCompleted: true,
+          startWeightCompleted: true,
+        },
+      },
+      { new: true }
+    ).select("onboardingProgress");
+
+    onboardingProgress = patient?.onboardingProgress;
+  }
+
+  return {
+    onboardingCompleted: user.onboardingCompleted,
+    ...(onboardingProgress && { onboardingProgress }),
+  };
+};
+
+/**
+ * Upload avatar for any authenticated user.
+ */
+export const uploadAvatar = async (userId, fileBuffer) => {
+  if (!fileBuffer) throw new ApiError(400, "No image file provided");
+
+  const { url } = await uploadToCloudinary(fileBuffer, "hellodose/avatars");
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { avatar: url },
+    { new: true }
+  ).select("firstName lastName email avatar role onboardingCompleted");
+
+  if (!user) throw new ApiError(404, "User not found");
+
+  return { avatar: user.avatar };
 };

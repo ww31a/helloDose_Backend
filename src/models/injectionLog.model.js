@@ -17,7 +17,6 @@ const injectionLogSchema = new mongoose.Schema({
   site: {
     type: String,
     enum: ["L_ABDOMEN", "R_ABDOMEN", "L_THIGH", "R_THIGH"],
-    required: true,
   },
   dosage: { type: String, default: "" },
   injectedAt: { type: Date, required: true },

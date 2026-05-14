@@ -27,6 +27,7 @@ const planSchema = new mongoose.Schema(
       default: "weight-loss",
     },
     frequency: { type: Number, default: 4 },
+    onboardingInjectionsThisMonth: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

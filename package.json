@@ -23,6 +23,7 @@
     "@sendgrid/mail": "^8.1.4",
     "axios": "^1.16.0",
     "bcrypt": "^6.0.0",
+    "cloudinary": "^2.10.0",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
@@ -35,6 +36,7 @@
     "joi": "^17.13.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.14.1",
+    "multer": "^2.1.1",
     "prettier": "^3.8.2"
   }
 }
