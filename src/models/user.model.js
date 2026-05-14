@@ -27,6 +27,7 @@ const userSchema = new mongoose.Schema(
     refreshToken: { type: String },
     deviceToken: { type: String },
     isActive: { type: Boolean, default: true },
+    onboardingCompleted: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

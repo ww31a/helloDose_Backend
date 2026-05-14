@@ -55,13 +55,16 @@ export const getPatients = async (providerUserId) => {
       let healthInsights = null;
 
       if (mainPlan) {
-        const currentWeightLoss =
-          mainPlan.startWeight && latestWeight ? mainPlan.startWeight - latestWeight.weightLbs : 0;
-        const progressPercent = mainPlan.targetWeightLoss
+        const hasWeightProgress = mainPlan.startWeight !== undefined
+          && mainPlan.startWeight !== null
+          && latestWeight?.weightLbs !== undefined
+          && latestWeight?.weightLbs !== null;
+        const currentWeightLoss = hasWeightProgress ? mainPlan.startWeight - latestWeight.weightLbs : null;
+        const progressPercent = mainPlan.targetWeightLoss && currentWeightLoss !== null
           ? Math.min(100, Math.round((currentWeightLoss / mainPlan.targetWeightLoss) * 100))
-          : 0;
+          : null;
 
-        let reorderStatus = "not_eligible";
+        let reorderStatus = null;
         let nextRefillLabel = null;
         if (mainPlan.nextRefillDate) {
           const daysToRefill = Math.ceil(
@@ -80,21 +83,21 @@ export const getPatients = async (providerUserId) => {
           name: mainPlan.name,
           startedAt: mainPlan.startedAt,
           targetWeightLoss: mainPlan.targetWeightLoss,
-          currentWeightLoss: Math.round(currentWeightLoss * 10) / 10,
+          currentWeightLoss: currentWeightLoss !== null ? Math.round(currentWeightLoss * 10) / 10 : null,
           progressPercent,
           monthsCompleted: Math.max(0, Math.floor((new Date() - mainPlan.startedAt) / (1000 * 60 * 60 * 24 * 30))),
-          durationMonths: mainPlan.durationMonths || 8,
+          durationMonths: mainPlan.durationMonths,
           lastReorderDate: mainPlan.lastReorderDate,
           reorderStatus,
           nextRefillLabel,
         };
 
         const totalLossPercent =
-          mainPlan.startWeight && latestWeight
+          hasWeightProgress
             ? Math.round(
                 ((latestWeight.weightLbs - mainPlan.startWeight) / mainPlan.startWeight) * 100 * 10
               ) / 10
-            : 0;
+            : null;
 
         // Relative time for weight
         let lastLoggedLabel = "Never";
@@ -139,7 +142,16 @@ export const getPatients = async (providerUserId) => {
           gender: patient.gender,
         },
         plan: planData,
-        activePlans: activePlans.map(p => ({ name: p.name })),
+        activePlans: activePlans.map(p => ({
+          _id: p._id,
+          name: p.name,
+          type: p.type,
+          startedAt: p.startedAt,
+          targetWeightLoss: p.targetWeightLoss,
+          currentDosage: p.currentDosage,
+          nextRefillDate: p.nextRefillDate,
+          lastReorderDate: p.lastReorderDate,
+        })),
         healthInsights,
         nextAppointment: appointmentData,
       };
@@ -250,8 +262,8 @@ export const getDashboard = async (providerUserId) => {
         meetingLink: apt.meetingLink,
         status: apt.status,
         appointmentType: apt.appointmentType || "Follow-up",
-        planNames: plans.length > 0 ? plans.map(p => p.name) : ["Tirzepatide"],
-        planName: plans[0]?.name || "Tirzepatide", // Keep for backward compatibility if needed
+        planNames: plans.map(p => p.name),
+        planName: plans[0]?.name || null,
       };
     })
   );
