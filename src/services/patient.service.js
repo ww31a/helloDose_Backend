@@ -36,7 +36,7 @@ export const getDashboard = async (userId) => {
       patient: userId,
       $or: [
         { plan: plan._id },
-        { plan: { $exists: false }, medication: plan.medication },
+        { plan: { $exists: false }, medication: plan.name },
         { plan: { $exists: false }, dosage: { $regex: new RegExp(plan.currentDosage, 'i') } }
       ]
     }).sort({ injectedAt: -1 });
@@ -77,7 +77,7 @@ export const getDashboard = async (userId) => {
     const details = {
       _id: plan._id,
       name: plan.name,
-      medication: plan.medication,
+      medication: plan.name,
       type: plan.type || "weight-loss",
       startedAt: plan.startedAt,
       targetWeightLoss: plan.targetWeightLoss,
@@ -311,7 +311,7 @@ export const logInjection = async (userId, site, injectedAt, dosage, notes, plan
   // If medication isn't provided, try to fetch it from the plan
   let med = medication;
   if (!med && plan) {
-    med = plan.medication;
+    med = plan.name;
   }
 
   const log = await InjectionLog.create({
@@ -340,7 +340,7 @@ export const getInjectionHistory = async (userId, planId) => {
         patient: userId,
         $or: [
           { plan: planId },
-          { plan: { $exists: false }, medication: plan.medication },
+          { plan: { $exists: false }, medication: plan.name },
           { plan: { $exists: false }, dosage: { $regex: new RegExp(plan.currentDosage, 'i') } }
         ]
       };
