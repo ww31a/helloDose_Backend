@@ -8,6 +8,7 @@ import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { LBS_PER_KG } from "../constants.js";
+import { getNextRefillDate, getDaysUntilNextRefill } from "../utils/refillDate.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
@@ -106,11 +107,12 @@ export const getDashboard = async (userId) => {
       ? Math.min(100, Math.round((currentWeightLoss / plan.targetWeightLoss) * 100))
       : null;
 
+    const computedNextRefillDate = getNextRefillDate(plan.startedAt);
     let reorderStatus = null;
     let daysUntilNextRefill = null;
     let nextRefillLabel = null;
-    if (plan.nextRefillDate) {
-      daysUntilNextRefill = Math.ceil((plan.nextRefillDate - new Date()) / MS_PER_DAY);
+    if (computedNextRefillDate) {
+      daysUntilNextRefill = getDaysUntilNextRefill(plan.startedAt);
       reorderStatus = daysUntilNextRefill <= 0
         ? "eligible_now"
         : `eligible_in_${daysUntilNextRefill}_days`;
@@ -150,7 +152,7 @@ export const getDashboard = async (userId) => {
       durationMonths: plan.durationMonths,
       frequency: Number(plan.frequency) || null,
       lastReorderDate: plan.lastReorderDate,
-      eligibleToReorderAt: plan.nextRefillDate,
+      eligibleToReorderAt: computedNextRefillDate,
       reorderStatus,
       daysUntilNextRefill,
       assignedProvider: planProviderData,
@@ -196,7 +198,7 @@ export const getDashboard = async (userId) => {
           ? getDayLabel(daysUntilNextInjection)
           : null,
         injectionIntervalDays,
-        nextRefillDate: plan.nextRefillDate,
+        nextRefillDate: computedNextRefillDate,
         daysUntilNextRefill,
         nextRefillLabel,
         totalLossPercent,
