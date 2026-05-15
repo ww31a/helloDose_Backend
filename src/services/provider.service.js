@@ -6,6 +6,12 @@ import { InjectionLog } from "../models/injectionLog.model.js";
 import { Appointment } from "../models/appointment.model.js";
 import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
+import {
+  getNextRefillDate,
+  getDaysUntilNextRefill,
+  getRefillEligibleLabel,
+  getRefillSubLabel,
+} from "../utils/refillDate.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
@@ -14,6 +20,98 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 const PROVIDER_TIMEZONE = "America/New_York";
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+const getRelativeDaysLabel = (daysAgo) => {
+  if (daysAgo === 0) return "Today";
+  if (daysAgo === 1) return "Yesterday";
+  return `${daysAgo} days ago`;
+};
+
+const enrichActivePlan = async (plan, userId, latestWeight) => {
+  const injectionOr = [
+    { plan: plan._id },
+    { plan: { $exists: false }, medication: plan.name },
+  ];
+  if (plan.currentDosage) {
+    injectionOr.push({
+      plan: { $exists: false },
+      dosage: { $regex: new RegExp(plan.currentDosage, "i") },
+    });
+  }
+
+  const latestInjection = await InjectionLog.findOne({
+    patient: userId,
+    $or: injectionOr,
+  }).sort({ injectedAt: -1 });
+
+  const hasWeightProgress =
+    plan.startWeight !== undefined &&
+    plan.startWeight !== null &&
+    latestWeight?.weightLbs !== undefined &&
+    latestWeight?.weightLbs !== null;
+
+  const currentWeightLoss = hasWeightProgress
+    ? Math.round((plan.startWeight - latestWeight.weightLbs) * 10) / 10
+    : null;
+
+  const progressPercent =
+    plan.targetWeightLoss && currentWeightLoss !== null
+      ? Math.min(100, Math.round((currentWeightLoss / plan.targetWeightLoss) * 100))
+      : null;
+
+  const totalLossPercent = hasWeightProgress
+    ? Math.round(
+        ((latestWeight.weightLbs - plan.startWeight) / plan.startWeight) * 100 * 10
+      ) / 10
+    : null;
+
+  const computedNextRefillDate = getNextRefillDate(plan.startedAt);
+  const daysUntilNextRefill = computedNextRefillDate
+    ? getDaysUntilNextRefill(plan.startedAt)
+    : null;
+
+  let lastLoggedLabel = "Not logged";
+  if (latestWeight) {
+    const daysAgo = Math.floor((new Date() - latestWeight.loggedAt) / MS_PER_DAY);
+    lastLoggedLabel = getRelativeDaysLabel(daysAgo);
+  }
+
+  let lastInjectionLabel = "No injections logged";
+  if (latestInjection) {
+    const daysSince = dayjs()
+      .startOf("day")
+      .diff(dayjs(latestInjection.injectedAt).startOf("day"), "day");
+    if (daysSince === 0) lastInjectionLabel = "Last Injection: Today";
+    else if (daysSince === 1) lastInjectionLabel = "Last Injection: Yesterday";
+    else lastInjectionLabel = `Last Injection: ${daysSince} days ago`;
+  }
+
+  return {
+    _id: plan._id,
+    name: plan.name,
+    type: plan.type,
+    startedAt: plan.startedAt,
+    targetWeightLoss: plan.targetWeightLoss,
+    currentWeightLoss,
+    progressPercent,
+    currentDosage: plan.currentDosage,
+    lastReorderDate: plan.lastReorderDate,
+    nextRefillDate: computedNextRefillDate,
+    nextRefillLabel: getRefillEligibleLabel(plan.startedAt),
+    healthInsights: {
+      lastLoggedWeight: latestWeight?.weightLbs ?? null,
+      lastLoggedUnit: latestWeight?.unitLogged ?? null,
+      lastLoggedLabel,
+      totalLossPercent,
+      currentDosage: plan.currentDosage,
+      lastInjectionAt: latestInjection?.injectedAt ?? null,
+      lastInjectionLabel,
+      nextRefillDate: computedNextRefillDate,
+      nextRefillLabel: getRefillSubLabel(plan.startedAt),
+    },
+  };
+};
 
 /**
  * Get all patients assigned to this provider — enriched with full card data
@@ -32,17 +130,19 @@ export const getPatients = async (providerUserId) => {
     patients.map(async (patient) => {
       const userId = patient.user._id;
 
-      // Active Plans
       const activePlans = await Plan.find({ patient: userId, isActive: true });
-      const mainPlan = activePlans.find(p => p.assignedProvider?.toString() === providerUserId.toString()) || activePlans[0]; // Prefer the plan assigned to this provider
-
-      // Latest weight
       const latestWeight = await WeightLog.findOne({ patient: userId }).sort({ loggedAt: -1 });
 
-      // Latest injection
-      const latestInjection = await InjectionLog.findOne({ patient: userId }).sort({ injectedAt: -1 });
+      const enrichedActivePlans = await Promise.all(
+        activePlans.map((plan) => enrichActivePlan(plan, userId, latestWeight))
+      );
 
-      // Next appointment
+      const mainPlanIndex = activePlans.findIndex(
+        (p) => p.assignedProvider?.toString() === providerUserId.toString()
+      );
+      const mainEnrichedPlan =
+        enrichedActivePlans[mainPlanIndex >= 0 ? mainPlanIndex : 0] || null;
+
       const nextAppointment = await Appointment.findOne({
         patient: userId,
         provider: providerUserId,
@@ -50,73 +150,41 @@ export const getPatients = async (providerUserId) => {
         startTime: { $gt: new Date() },
       }).sort({ startTime: 1 });
 
-      // Compute derived fields
       let planData = null;
       let healthInsights = null;
 
-      if (mainPlan) {
-        const hasWeightProgress = mainPlan.startWeight !== undefined
-          && mainPlan.startWeight !== null
-          && latestWeight?.weightLbs !== undefined
-          && latestWeight?.weightLbs !== null;
-        const currentWeightLoss = hasWeightProgress ? mainPlan.startWeight - latestWeight.weightLbs : null;
-        const progressPercent = mainPlan.targetWeightLoss && currentWeightLoss !== null
-          ? Math.min(100, Math.round((currentWeightLoss / mainPlan.targetWeightLoss) * 100))
+      if (mainEnrichedPlan) {
+        const mainPlan =
+          activePlans[mainPlanIndex >= 0 ? mainPlanIndex : 0] || activePlans[0];
+        const daysUntilNextRefill = mainEnrichedPlan.nextRefillDate
+          ? getDaysUntilNextRefill(mainPlan.startedAt)
           : null;
 
-        let reorderStatus = null;
-        let nextRefillLabel = null;
-        if (mainPlan.nextRefillDate) {
-          const daysToRefill = Math.ceil(
-            (mainPlan.nextRefillDate - new Date()) / (1000 * 60 * 60 * 24)
-          );
-          if (daysToRefill <= 0) {
-            reorderStatus = "eligible_now";
-            nextRefillLabel = "Reorder Eligible Now";
-          } else {
-            reorderStatus = `eligible_in_${daysToRefill}_days`;
-            nextRefillLabel = `Eligible in ${daysToRefill} days`;
-          }
-        }
-
         planData = {
-          name: mainPlan.name,
-          startedAt: mainPlan.startedAt,
-          targetWeightLoss: mainPlan.targetWeightLoss,
-          currentWeightLoss: currentWeightLoss !== null ? Math.round(currentWeightLoss * 10) / 10 : null,
-          progressPercent,
-          monthsCompleted: Math.max(0, Math.floor((new Date() - mainPlan.startedAt) / (1000 * 60 * 60 * 24 * 30))),
+          name: mainEnrichedPlan.name,
+          startedAt: mainEnrichedPlan.startedAt,
+          targetWeightLoss: mainEnrichedPlan.targetWeightLoss,
+          currentWeightLoss: mainEnrichedPlan.currentWeightLoss,
+          progressPercent: mainEnrichedPlan.progressPercent,
+          monthsCompleted: Math.max(
+            0,
+            Math.floor((new Date() - mainPlan.startedAt) / (MS_PER_DAY * 30))
+          ),
           durationMonths: mainPlan.durationMonths,
-          lastReorderDate: mainPlan.lastReorderDate,
-          reorderStatus,
-          nextRefillLabel,
+          lastReorderDate: mainEnrichedPlan.lastReorderDate,
+          nextRefillDate: mainEnrichedPlan.nextRefillDate,
+          reorderStatus:
+            daysUntilNextRefill === null
+              ? null
+              : daysUntilNextRefill <= 0
+              ? "eligible_now"
+              : `eligible_in_${daysUntilNextRefill}_days`,
+          nextRefillLabel: mainEnrichedPlan.nextRefillLabel,
         };
 
-        const totalLossPercent =
-          hasWeightProgress
-            ? Math.round(
-                ((latestWeight.weightLbs - mainPlan.startWeight) / mainPlan.startWeight) * 100 * 10
-              ) / 10
-            : null;
-
-        // Relative time for weight
-        let lastLoggedLabel = "Never";
-        if (latestWeight) {
-          const daysAgo = Math.floor((new Date() - latestWeight.loggedAt) / (1000 * 60 * 60 * 24));
-          if (daysAgo === 0) lastLoggedLabel = "Today";
-          else if (daysAgo === 1) lastLoggedLabel = "Yesterday";
-          else lastLoggedLabel = `${daysAgo} days ago`;
-        }
-
         healthInsights = {
-          lastLoggedWeight: latestWeight?.weightLbs || null,
-          lastLoggedUnit: latestWeight?.unitLogged || null,
+          ...mainEnrichedPlan.healthInsights,
           lastLoggedAt: latestWeight?.loggedAt || null,
-          lastLoggedLabel,
-          totalLossPercent,
-          currentDosage: mainPlan.currentDosage,
-          lastInjectionAt: latestInjection?.injectedAt || null,
-          nextRefillDate: mainPlan.nextRefillDate,
         };
       }
 
@@ -142,16 +210,7 @@ export const getPatients = async (providerUserId) => {
           gender: patient.gender,
         },
         plan: planData,
-        activePlans: activePlans.map(p => ({
-          _id: p._id,
-          name: p.name,
-          type: p.type,
-          startedAt: p.startedAt,
-          targetWeightLoss: p.targetWeightLoss,
-          currentDosage: p.currentDosage,
-          nextRefillDate: p.nextRefillDate,
-          lastReorderDate: p.lastReorderDate,
-        })),
+        activePlans: enrichedActivePlans,
         healthInsights,
         nextAppointment: appointmentData,
       };
