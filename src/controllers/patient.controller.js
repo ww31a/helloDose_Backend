@@ -9,7 +9,7 @@ export const getDashboard = asyncHandler(async (req, res) => {
 
 export const getActivePlans = asyncHandler(async (req, res) => {
   const data = await patientService.getActivePlans(req.user._id);
-  res.status(200).json(new ApiResponse(200, data, "Active plans fetched"));
+  res.status(200).json(new ApiResponse(200, data, "Active programs fetched"));
 });
 
 export const getOnboardingStatus = asyncHandler(async (req, res) => {
@@ -17,16 +17,11 @@ export const getOnboardingStatus = asyncHandler(async (req, res) => {
   res.status(200).json(new ApiResponse(200, data, "Onboarding status fetched"));
 });
 
-export const markOnboardingStep = asyncHandler(async (req, res) => {
-  const { step } = req.body;
-  const data = await patientService.markOnboardingStep(req.user._id, step);
-  res.status(200).json(new ApiResponse(200, data, "Onboarding progress updated"));
-});
 
 export const updatePlanDosage = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const { dosage, frequency, injectionsThisMonth } = req.body;
-  const data = await patientService.updatePlanDosage(req.user._id, id, dosage, frequency, injectionsThisMonth);
+  const { dosage, frequency, injectionsThisMonth, lastInjectionDate } = req.body;
+  const data = await patientService.updatePlanDosage(req.user._id, id, dosage, frequency, injectionsThisMonth, lastInjectionDate);
   res.status(200).json(new ApiResponse(200, data, "Plan dosage updated"));
 });
 

@@ -70,10 +70,6 @@ export const verifyOtp = async (email, candidateOtp, deviceToken) => {
   user.refreshToken = refreshToken;
   await user.save();
 
-  const patient = user.role === "patient"
-    ? await Patient.findOne({ user: user._id }).select("onboardingProgress")
-    : null;
-
   return {
     accessToken,
     refreshToken,
@@ -85,7 +81,6 @@ export const verifyOtp = async (email, candidateOtp, deviceToken) => {
       role: user.role,
       avatar: user.avatar,
       onboardingCompleted: user.onboardingCompleted,
-      ...(patient && { onboardingProgress: patient.onboardingProgress }),
     },
   };
 };
@@ -143,26 +138,8 @@ export const completeOnboarding = async (userId) => {
   user.onboardingCompleted = true;
   await user.save();
 
-  let onboardingProgress;
-  if (user.role === "patient") {
-    const patient = await Patient.findOneAndUpdate(
-      { user: userId },
-      {
-        onboardingProgress: {
-          photoCompleted: true,
-          plansCompleted: true,
-          startWeightCompleted: true,
-        },
-      },
-      { new: true }
-    ).select("onboardingProgress");
-
-    onboardingProgress = patient?.onboardingProgress;
-  }
-
   return {
     onboardingCompleted: user.onboardingCompleted,
-    ...(onboardingProgress && { onboardingProgress }),
   };
 };
 

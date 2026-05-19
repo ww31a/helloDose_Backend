@@ -14,7 +14,9 @@
     "dev": "node --env-file=.env --watch src/index.js",
     "start": "node --env-file=.env src/index.js",
     "seed": "node --env-file=.env src/seed.js",
-    "seed:employees": "node --env-file=.env src/scripts/seedEmployees.js"
+    "seed:employees": "node --env-file=.env src/scripts/seedEmployees.js",
+    "seed:natalia": "node --env-file=.env src/scripts/seedNataliaPatients.js",
+    "seed:natalia-peptide": "node --env-file=.env src/scripts/seedNataliaPeptidePlans.js"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -21,8 +21,6 @@ router.get("/active-plans", patientController.getActivePlans);
 // GET /api/v1/patient/onboarding-status
 router.get("/onboarding-status", patientController.getOnboardingStatus);
 
-// PUT /api/v1/patient/onboarding-progress
-router.put("/onboarding-progress", patientController.markOnboardingStep);
 
 // PUT /api/v1/patient/plan/:id/dosage
 router.put("/plan/:id/dosage", patientController.updatePlanDosage);
