@@ -306,6 +306,7 @@ export const getDashboard = async (userId) => {
       lastName: patient.user.lastName,
       email: patient.user.email,
       avatar: patient.user.avatar,
+      checkinRequested: patient.checkinRequested || false,
     },
     plans: plansData,
     healthInsights,
@@ -484,6 +485,7 @@ export const getMyNp = async (userId) => {
       npSince: provider.npSince,
     },
     appointment: appointmentData,
+    checkinRequested: patient.checkinRequested || false,
   };
 };
 

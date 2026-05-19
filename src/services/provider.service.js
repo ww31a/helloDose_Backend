@@ -280,6 +280,12 @@ export const requestCheckin = async (providerUserId, patientId) => {
     throw new ApiError(404, "Patient user not found");
   }
 
+  // Set checkinRequested to true
+  await Patient.findOneAndUpdate(
+    { user: patientId },
+    { checkinRequested: true }
+  );
+
   // TODO: Send push notification via Firebase when configured
   // For MVP, log the action
   if (patientUser.deviceToken) {

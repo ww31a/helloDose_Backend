@@ -93,6 +93,12 @@ export const bookAppointment = async (patientUserId, providerId, startTime) => {
     status: calBooking.status,
   });
 
+  // Reset check-in request status
+  await Patient.findOneAndUpdate(
+    { user: patientUserId },
+    { checkinRequested: false }
+  );
+
   return appointment;
 };
 
