@@ -12,6 +12,8 @@ import {
   getRefillEligibleLabel,
   getRefillSubLabel,
 } from "../utils/refillDate.js";
+import { NOTIFICATION_TYPES } from "./notificationTemplates.js";
+import { sendNotificationTypeToUser } from "./notification.service.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
@@ -29,10 +31,7 @@ const getRelativeDaysLabel = (daysAgo) => {
 };
 
 const enrichActivePlan = async (plan, userId, latestWeight) => {
-  const injectionOr = [
-    { plan: plan._id },
-    { plan: { $exists: false }, medication: plan.name },
-  ];
+  const injectionOr = [{ plan: plan._id }, { plan: { $exists: false }, medication: plan.name }];
   if (plan.currentDosage) {
     injectionOr.push({
       plan: { $exists: false },
@@ -61,9 +60,7 @@ const enrichActivePlan = async (plan, userId, latestWeight) => {
       : null;
 
   const totalLossPercent = hasWeightProgress
-    ? Math.round(
-        ((latestWeight.weightLbs - plan.startWeight) / plan.startWeight) * 100 * 10
-      ) / 10
+    ? Math.round(((latestWeight.weightLbs - plan.startWeight) / plan.startWeight) * 100 * 10) / 10
     : null;
 
   const computedNextRefillDate = getNextRefillDate(plan.startedAt);
@@ -119,7 +116,7 @@ const enrichActivePlan = async (plan, userId, latestWeight) => {
 export const getPatients = async (providerUserId) => {
   // Get all unique patients who have at least one active plan assigned to this provider
   const plansWithProvider = await Plan.find({ assignedProvider: providerUserId });
-  const patientUserIds = [...new Set(plansWithProvider.map(p => p.patient))];
+  const patientUserIds = [...new Set(plansWithProvider.map((p) => p.patient))];
 
   const patients = await Patient.find({ user: { $in: patientUserIds } }).populate(
     "user",
@@ -140,8 +137,7 @@ export const getPatients = async (providerUserId) => {
       const mainPlanIndex = activePlans.findIndex(
         (p) => p.assignedProvider?.toString() === providerUserId.toString()
       );
-      const mainEnrichedPlan =
-        enrichedActivePlans[mainPlanIndex >= 0 ? mainPlanIndex : 0] || null;
+      const mainEnrichedPlan = enrichedActivePlans[mainPlanIndex >= 0 ? mainPlanIndex : 0] || null;
 
       const nextAppointment = await Appointment.findOne({
         patient: userId,
@@ -154,8 +150,7 @@ export const getPatients = async (providerUserId) => {
       let healthInsights = null;
 
       if (mainEnrichedPlan) {
-        const mainPlan =
-          activePlans[mainPlanIndex >= 0 ? mainPlanIndex : 0] || activePlans[0];
+        const mainPlan = activePlans[mainPlanIndex >= 0 ? mainPlanIndex : 0] || activePlans[0];
         const daysUntilNextRefill = mainEnrichedPlan.nextRefillDate
           ? getDaysUntilNextRefill(mainPlan.startedAt)
           : null;
@@ -177,8 +172,8 @@ export const getPatients = async (providerUserId) => {
             daysUntilNextRefill === null
               ? null
               : daysUntilNextRefill <= 0
-              ? "eligible_now"
-              : `eligible_in_${daysUntilNextRefill}_days`,
+                ? "eligible_now"
+                : `eligible_in_${daysUntilNextRefill}_days`,
           nextRefillLabel: mainEnrichedPlan.nextRefillLabel,
         };
 
@@ -190,7 +185,10 @@ export const getPatients = async (providerUserId) => {
 
       let appointmentData = null;
       if (nextAppointment) {
-        const daysUntil = Math.max(0, Math.ceil((nextAppointment.startTime - new Date()) / (1000 * 60 * 60 * 24)));
+        const daysUntil = Math.max(
+          0,
+          Math.ceil((nextAppointment.startTime - new Date()) / (1000 * 60 * 60 * 24))
+        );
         appointmentData = {
           startTime: nextAppointment.startTime,
           daysUntil,
@@ -225,7 +223,7 @@ export const getPatients = async (providerUserId) => {
  */
 export const getPatientDetail = async (providerUserId, patientUserId) => {
   const plans = await Plan.find({ patient: patientUserId, assignedProvider: providerUserId });
-  
+
   if (plans.length === 0) {
     throw new ApiError(404, "Patient not found or not assigned to you for any plan");
   }
@@ -280,18 +278,21 @@ export const requestCheckin = async (providerUserId, patientId) => {
     throw new ApiError(404, "Patient user not found");
   }
 
-  // Set checkinRequested to true
-  await Patient.findOneAndUpdate(
-    { user: patientId },
-    { checkinRequested: true }
-  );
+  const providerUser = await User.findById(providerUserId).select("firstName lastName");
 
-  // TODO: Send push notification via Firebase when configured
-  // For MVP, log the action
-  if (patientUser.deviceToken) {
-    console.log(
-      `[Check-in Request] Push notification would be sent to device token: ${patientUser.deviceToken}`
-    );
+  // Set checkinRequested to true
+  await Patient.findOneAndUpdate({ user: patientId }, { checkinRequested: true });
+
+  try {
+    await sendNotificationTypeToUser(patientId, NOTIFICATION_TYPES.NP_CHECKIN_REQUEST, {
+      patientId,
+      providerId: providerUserId,
+      providerName: providerUser
+        ? `${providerUser.firstName} ${providerUser.lastName}`
+        : "Your provider",
+    });
+  } catch (error) {
+    console.error("Failed to send check-in push notification:", error.message);
   }
 
   return null;
@@ -327,7 +328,7 @@ export const getDashboard = async (providerUserId) => {
         meetingLink: apt.meetingLink,
         status: apt.status,
         appointmentType: apt.appointmentType || "Follow-up",
-        planNames: plans.map(p => p.name),
+        planNames: plans.map((p) => p.name),
         planName: plans[0]?.name || null,
       };
     })
@@ -338,7 +339,7 @@ export const getDashboard = async (providerUserId) => {
 
   // Active patients (basic count)
   const plansWithProvider = await Plan.find({ assignedProvider: providerUserId });
-  const patientUserIds = [...new Set(plansWithProvider.map(p => p.patient.toString()))];
+  const patientUserIds = [...new Set(plansWithProvider.map((p) => p.patient.toString()))];
   const patientsCount = patientUserIds.length;
 
   return {
@@ -360,7 +361,7 @@ export const getProfile = async (providerUserId) => {
   if (!provider) throw new ApiError(404, "Provider not found");
 
   const plansWithProvider = await Plan.find({ assignedProvider: providerUserId });
-  const patientUserIds = [...new Set(plansWithProvider.map(p => p.patient.toString()))];
+  const patientUserIds = [...new Set(plansWithProvider.map((p) => p.patient.toString()))];
   const patientsCount = patientUserIds.length;
 
   // Calculate "On Shift" status

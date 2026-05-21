@@ -59,7 +59,20 @@ export const verifyOtp = async (email, candidateOtp, deviceToken) => {
 
   // Save device token if provided
   if (deviceToken) {
+    await User.updateMany(
+      { _id: { $ne: user._id } },
+      { $pull: { deviceTokens: { token: deviceToken } } }
+    );
+    await User.updateMany({ _id: { $ne: user._id }, deviceToken }, { $unset: { deviceToken: "" } });
     user.deviceToken = deviceToken;
+    user.deviceTokens = [
+      ...(user.deviceTokens || []).filter((item) => item.token !== deviceToken),
+      {
+        token: deviceToken,
+        platform: "unknown",
+        lastUsedAt: new Date(),
+      },
+    ];
   }
 
   // Generate tokens
@@ -151,11 +164,9 @@ export const uploadAvatar = async (userId, fileBuffer) => {
 
   const { url } = await uploadToCloudinary(fileBuffer, "hellodose/avatars");
 
-  const user = await User.findByIdAndUpdate(
-    userId,
-    { avatar: url },
-    { new: true }
-  ).select("firstName lastName email avatar role onboardingCompleted");
+  const user = await User.findByIdAndUpdate(userId, { avatar: url }, { new: true }).select(
+    "firstName lastName email avatar role onboardingCompleted"
+  );
 
   if (!user) throw new ApiError(404, "User not found");
 

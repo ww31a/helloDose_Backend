@@ -26,6 +26,18 @@ const userSchema = new mongoose.Schema(
     otpExpiry: { type: Date },
     refreshToken: { type: String },
     deviceToken: { type: String },
+    deviceTokens: [
+      {
+        token: { type: String, required: true },
+        platform: { type: String, enum: ["ios", "android", "unknown"], default: "unknown" },
+        appVersion: { type: String, default: "" },
+        createdAt: { type: Date, default: Date.now },
+        lastUsedAt: { type: Date, default: Date.now },
+      },
+    ],
+    notificationPreferences: {
+      weightLogRemindersEnabled: { type: Boolean, default: true },
+    },
     isActive: { type: Boolean, default: true },
     onboardingCompleted: { type: Boolean, default: false },
   },
@@ -42,8 +54,7 @@ userSchema.pre("save", async function (next) {
 // ── Pre-save: hash refreshToken ──
 userSchema.pre("save", async function (next) {
   if (!this.isModified("refreshToken")) return next();
-  if (this.refreshToken)
-    this.refreshToken = await bcrypt.hash(this.refreshToken, 10);
+  if (this.refreshToken) this.refreshToken = await bcrypt.hash(this.refreshToken, 10);
   next();
 });
 
