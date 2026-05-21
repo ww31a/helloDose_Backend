@@ -120,12 +120,13 @@ export const getDashboard = async (userId) => {
           ? Math.min(100, Math.round((currentWeightLoss / plan.targetWeightLoss) * 100))
           : null;
 
-      const computedNextRefillDate = getNextRefillDate(plan.startedAt);
+      const refillBaseDate = plan.onboardingDate || plan.startedAt;
+      const computedNextRefillDate = getNextRefillDate(refillBaseDate);
       let reorderStatus = null;
       let daysUntilNextRefill = null;
       let nextRefillLabel = null;
       if (computedNextRefillDate) {
-        daysUntilNextRefill = getDaysUntilNextRefill(plan.startedAt);
+        daysUntilNextRefill = getDaysUntilNextRefill(refillBaseDate);
         reorderStatus =
           daysUntilNextRefill <= 0 ? "eligible_now" : `eligible_in_${daysUntilNextRefill}_days`;
         nextRefillLabel =
@@ -401,6 +402,13 @@ export const updateOnboardingWeights = async (
   const planUpdate = { startWeight: numericStartWeight };
   if (numericTargetWeightLoss !== undefined && !Number.isNaN(numericTargetWeightLoss)) {
     planUpdate.targetWeightLoss = numericTargetWeightLoss;
+  }
+
+  // Set onboardingDate only on first time weights are entered
+  const existingPlans = await Plan.find({ patient: userId, isActive: true, type: "weight-loss" });
+  const hasNoOnboardingDate = existingPlans.some(p => !p.onboardingDate);
+  if (hasNoOnboardingDate) {
+    planUpdate.onboardingDate = new Date();
   }
 
   // Update all active weight-loss plans for this patient

@@ -5,7 +5,8 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 /**
  * Next refill occurs every 30 days from plan start.
- * Once a refill day has arrived or passed, advance to the following cycle.
+ * Returns the next eligible refill date (30 days after start, then every 30 days).
+ * On the refill day itself, this returns that day (daysUntilNextRefill will be 0).
  */
 export function getNextRefillDate(startedAt) {
   if (!startedAt) return null;
@@ -14,9 +15,10 @@ export function getNextRefillDate(startedAt) {
   if (!start.isValid()) return null;
 
   const today = dayjs().startOf("day");
-  let refillDate = start;
+  let refillDate = start.add(REFILL_INTERVAL_DAYS, "day");
 
-  while (refillDate.isBefore(today, "day") || refillDate.isSame(today, "day")) {
+  // Advance through cycles until we find a date that is today or in the future
+  while (refillDate.isBefore(today, "day")) {
     refillDate = refillDate.add(REFILL_INTERVAL_DAYS, "day");
   }
 

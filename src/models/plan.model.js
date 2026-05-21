@@ -13,6 +13,7 @@ const planSchema = new mongoose.Schema(
     },
     name: { type: String, required: true },
     startedAt: { type: Date, required: true },
+    onboardingDate: { type: Date },
     currentDosage: { type: String, default: "" },
     targetWeightLoss: { type: Number },
     startWeight: { type: Number },
