@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 
 const defaultServiceAccountPath = path.join(
   __dirname,
-  "hello-dose-firebase-adminsdk-fbsvc-9b0c0eca97.json"
+  "hello-dose-firebase-service-account.json"
 );
 
 const getServiceAccount = () => {

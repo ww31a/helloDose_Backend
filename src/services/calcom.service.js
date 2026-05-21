@@ -16,6 +16,7 @@ const CALCOM_BASE_URL = "https://api.cal.com/v2";
 // /v2/slots uses 2024-09-04; /v2/bookings uses 2024-08-13
 const CALCOM_SLOTS_VERSION = "2024-09-04";
 const CALCOM_BOOKINGS_VERSION = "2024-08-13";
+const CALCOM_SCHEDULES_VERSION = "2024-06-11";
 
 // One shared client — platform API key, used for all NPs
 const calcom = axios.create({
@@ -39,8 +40,8 @@ export const getAvailableSlots = async ({
   endTime,
   timeZone = "America/New_York",
 }) => {
+  const params = { start: startTime, end: endTime, timeZone, eventTypeSlug, username };
   try {
-    const params = { start: startTime, end: endTime, timeZone, eventTypeSlug, username };
     const { data } = await calcom.get("/slots", {
       params,
       headers: { "cal-api-version": CALCOM_SLOTS_VERSION },
@@ -59,15 +60,58 @@ export const getAvailableSlots = async ({
 };
 
 /**
+ * Fetch a Cal.com schedule by numeric schedule id.
+ */
+export const getSchedule = async (scheduleId) => {
+  if (!scheduleId) {
+    throw new ApiError(400, "Cal.com schedule id is required");
+  }
+
+  try {
+    const { data } = await calcom.get(`/schedules/${scheduleId}`, {
+      headers: { "cal-api-version": CALCOM_SCHEDULES_VERSION },
+    });
+
+    return data.data ?? data;
+  } catch (err) {
+    logger.error(`Cal.com getSchedule error (${scheduleId}): ${err.message}`);
+    if (err.response) {
+      logger.error(`Cal.com schedule response status: ${err.response.status}`);
+      logger.error(`Cal.com schedule response data: ${JSON.stringify(err.response.data)}`);
+    }
+    throw new ApiError(502, "Failed to fetch schedule from Cal.com");
+  }
+};
+
+/**
+ * Update a Cal.com schedule by numeric schedule id.
+ */
+export const updateSchedule = async (scheduleId, schedulePayload) => {
+  if (!scheduleId) {
+    throw new ApiError(400, "Cal.com schedule id is required");
+  }
+
+  try {
+    const { data } = await calcom.patch(`/schedules/${scheduleId}`, schedulePayload, {
+      headers: { "cal-api-version": CALCOM_SCHEDULES_VERSION },
+    });
+
+    return data.data ?? data;
+  } catch (err) {
+    logger.error(`Cal.com updateSchedule error (${scheduleId}): ${err.message}`);
+    if (err.response) {
+      logger.error(`Cal.com schedule update response status: ${err.response.status}`);
+      logger.error(`Cal.com schedule update response data: ${JSON.stringify(err.response.data)}`);
+    }
+    throw new ApiError(502, "Failed to update schedule on Cal.com");
+  }
+};
+
+/**
  * Generate a meeting link by creating a booking on the NP's calendar.
  * Link is cached on the Appointment document by the controller — never call this twice.
  */
-export const generateMeetingLink = async ({
-  provider,
-  appointment,
-  patientName,
-  patientEmail,
-}) => {
+export const generateMeetingLink = async ({ provider, appointment, patientName, patientEmail }) => {
   if (!provider.calcom_username || !provider.calcom_event_slug) {
     throw new ApiError(
       500,
@@ -76,17 +120,21 @@ export const generateMeetingLink = async ({
   }
 
   try {
-    const { data } = await calcom.post("/bookings", {
-      username: provider.calcom_username,
-      eventTypeSlug: provider.calcom_event_slug,
-      start: appointment.startTime,
-      attendee: {
-        name: patientName,
-        email: patientEmail,
-        timeZone: "America/New_York",
+    const { data } = await calcom.post(
+      "/bookings",
+      {
+        username: provider.calcom_username,
+        eventTypeSlug: provider.calcom_event_slug,
+        start: appointment.startTime,
+        attendee: {
+          name: patientName,
+          email: patientEmail,
+          timeZone: "America/New_York",
+        },
+        metadata: { appointmentId: appointment._id.toString() },
       },
-      metadata: { appointmentId: appointment._id.toString() },
-    }, { headers: { "cal-api-version": CALCOM_BOOKINGS_VERSION } });
+      { headers: { "cal-api-version": CALCOM_BOOKINGS_VERSION } }
+    );
 
     return {
       meetingLink: data.data?.videoCallData?.url ?? data.data?.meetingUrl ?? null,
@@ -112,17 +160,21 @@ export const createBooking = async ({
   metadata = {},
 }) => {
   try {
-    const { data } = await calcom.post("/bookings", {
-      username,
-      eventTypeSlug,
-      start: startTime,
-      attendee: {
-        name,
-        email,
-        timeZone,
+    const { data } = await calcom.post(
+      "/bookings",
+      {
+        username,
+        eventTypeSlug,
+        start: startTime,
+        attendee: {
+          name,
+          email,
+          timeZone,
+        },
+        metadata,
       },
-      metadata,
-    }, { headers: { "cal-api-version": CALCOM_BOOKINGS_VERSION } });
+      { headers: { "cal-api-version": CALCOM_BOOKINGS_VERSION } }
+    );
 
     return {
       calBookingId: data.data?.uid,
@@ -161,7 +213,9 @@ export const processCalcomWebhook = async (event) => {
       const bookingId = payload?.uid ?? payload?.id;
       const appt = await Appointment.findOne({ cal_booking_id: bookingId });
       if (!appt) {
-        logger.warn(`[Cal.com] BOOKING_RESCHEDULED — no appointment found for cal_booking_id ${bookingId}`);
+        logger.warn(
+          `[Cal.com] BOOKING_RESCHEDULED — no appointment found for cal_booking_id ${bookingId}`
+        );
         return;
       }
       appt.startTime = payload.start ?? payload.startTime;
@@ -176,7 +230,9 @@ export const processCalcomWebhook = async (event) => {
       const bookingId = payload?.uid ?? payload?.id;
       const appt = await Appointment.findOne({ cal_booking_id: bookingId });
       if (!appt) {
-        logger.warn(`[Cal.com] BOOKING_CANCELLED — no appointment found for cal_booking_id ${bookingId}`);
+        logger.warn(
+          `[Cal.com] BOOKING_CANCELLED — no appointment found for cal_booking_id ${bookingId}`
+        );
         return;
       }
       appt.status = "cancelled";

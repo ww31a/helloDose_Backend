@@ -366,25 +366,45 @@ export const getProfile = async (providerUserId) => {
 
   // Calculate "On Shift" status
   let isCurrentlyOnShift = false;
-  let shiftEndsLabel = "";
+  let availabilityLabel = "No shift scheduled today";
 
   try {
     const calcomService = await import("./calcom.service.js");
-    const schedule = await calcomService.getSchedule(provider.calcom_schedule_id);
+    const scheduleId = provider.calcom_schedule_id;
+    const schedule = scheduleId ? await calcomService.getSchedule(scheduleId) : null;
 
     if (schedule && schedule.availability) {
-      const todayDay = dayjs().format("dddd"); // e.g. "Monday"
-      const nowTime = dayjs().format("HH:mm");
+      const scheduleTimeZone = schedule.timeZone || PROVIDER_TIMEZONE;
+      const now = dayjs().tz(scheduleTimeZone);
+      const todayDay = now.format("dddd"); // e.g. "Monday"
+      const todayDate = now.format("YYYY-MM-DD");
 
-      const todayAvailability = schedule.availability.filter((a) => a.days.includes(todayDay));
+      const todayAvailability = schedule.availability
+        .filter((a) => a.days?.some((day) => day.toLowerCase() === todayDay.toLowerCase()))
+        .map((avail) => {
+          const start = dayjs.tz(`${todayDate}T${avail.startTime}`, scheduleTimeZone);
+          let end = dayjs.tz(`${todayDate}T${avail.endTime}`, scheduleTimeZone);
+          if (end.isBefore(start)) end = end.add(1, "day");
+          return { start, end };
+        })
+        .sort((a, b) => a.start.valueOf() - b.start.valueOf());
 
       for (const avail of todayAvailability) {
-        if (nowTime >= avail.startTime && nowTime <= avail.endTime) {
-          isCurrentlyOnShift = true;
-          const endTimeLabel = dayjs(`2000-01-01T${avail.endTime}`).format("h:mm A");
-          shiftEndsLabel = `Ends at ${endTimeLabel} today`;
+        const startTimeLabel = avail.start.format("h:mm A");
+        const endTimeLabel = avail.end.format("h:mm A");
+
+        if (now.isBefore(avail.start)) {
+          availabilityLabel = `Starts at ${startTimeLabel} today`;
           break;
         }
+
+        if (now.isSame(avail.start) || (now.isAfter(avail.start) && now.isBefore(avail.end))) {
+          isCurrentlyOnShift = true;
+          availabilityLabel = `Ends at ${endTimeLabel} today`;
+          break;
+        }
+
+        availabilityLabel = `Shift ended at ${endTimeLabel} today`;
       }
     }
   } catch (error) {
@@ -400,7 +420,7 @@ export const getProfile = async (providerUserId) => {
     email: provider.user.email,
     activePatientsCount: patientsCount,
     availabilityStatus: isCurrentlyOnShift ? "Currently On Shift" : "Off Duty",
-    availabilityLabel: isCurrentlyOnShift ? shiftEndsLabel : "No shift scheduled today",
+    availabilityLabel,
   };
 };
 
@@ -413,7 +433,8 @@ export const getAvailability = async (providerUserId) => {
 
   try {
     const calcomService = await import("./calcom.service.js");
-    const schedule = await calcomService.getSchedule(provider.calcom_schedule_id);
+    const scheduleId = provider.calcom_schedule_id;
+    const schedule = scheduleId ? await calcomService.getSchedule(scheduleId) : null;
 
     // Map Cal.com ["Monday", "Tuesday"] back to our UI format
     const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

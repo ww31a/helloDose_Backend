@@ -4,8 +4,7 @@ import { Provider } from "../models/provider.model.js";
 import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import * as calcomService from "./calcom.service.js";
-import { NOTIFICATION_TYPES } from "./notificationTemplates.js";
-import { sendNotificationTypeToUser } from "./notification.service.js";
+import { sendAppointmentScheduledNotification } from "./appointmentNotification.service.js";
 import dayjs from "dayjs";
 
 /**
@@ -105,17 +104,7 @@ export const bookAppointment = async (patientUserId, providerId, startTime) => {
   await Patient.findOneAndUpdate({ user: patientUserId }, { checkinRequested: false });
 
   try {
-    const providerUser = await User.findById(provider.user).select("firstName lastName");
-    await sendNotificationTypeToUser(patientUserId, NOTIFICATION_TYPES.UPCOMING_APPOINTMENT, {
-      patientId: patientUserId,
-      providerId: provider.user,
-      appointmentId: appointment._id,
-      providerName: providerUser
-        ? `${providerUser.firstName} ${providerUser.lastName}`
-        : "your provider",
-      date: dayjs(appointment.startTime).format("MMM D, YYYY"),
-      time: dayjs(appointment.startTime).format("h:mm A"),
-    });
+    await sendAppointmentScheduledNotification(appointment);
   } catch (error) {
     console.error("Failed to send appointment push notification:", error.message);
   }
