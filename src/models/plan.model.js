@@ -18,6 +18,7 @@ const planSchema = new mongoose.Schema(
     targetWeightLoss: { type: Number },
     startWeight: { type: Number },
     followUpTiming: { type: String },
+    refillCycleStartedAt: { type: Date },
     lastReorderDate: { type: Date },
     nextRefillDate: { type: Date },
     vagaro_id: { type: String, index: true },
@@ -29,6 +30,7 @@ const planSchema = new mongoose.Schema(
     },
     frequency: { type: Number, default: 4 },
     onboardingInjectionsThisMonth: { type: Number, default: 0 },
+    lastKnownInjectionDate: { type: Date },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

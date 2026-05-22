@@ -8,70 +8,17 @@ import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { LBS_PER_KG } from "../constants.js";
-import { getNextRefillDate, getDaysUntilNextRefill } from "../utils/refillDate.js";
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
 import timezone from "dayjs/plugin/timezone.js";
+import { getCycleStartDate, countCycleInjectionLogs } from "./patient/cycle.helpers.js";
+import { computeNextRefillDate, getRefillReorderFields } from "./patient/refill.helpers.js";
+import { buildInjectionInsights, resolveLastInjectionAt } from "./patient/injection.helpers.js";
+import { syncOnboardingInjectionLogs } from "./patient/onboarding.helpers.js";
+import { MS_PER_DAY } from "./patient/constants.js";
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
-
-const ONBOARDING_INJECTION_NOTE = "Reported during onboarding";
-const DAYS_IN_INJECTION_CYCLE = 30;
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
-const getCurrentMonthStart = () => {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1);
-};
-
-const getInjectionIntervalDays = (frequency) => {
-  const numericFrequency = Number(frequency);
-  if (!numericFrequency || Number.isNaN(numericFrequency) || numericFrequency <= 0) {
-    return null;
-  }
-
-  return DAYS_IN_INJECTION_CYCLE / numericFrequency;
-};
-
-const addDays = (date, days) => new Date(date.getTime() + days * MS_PER_DAY);
-
-const getDayLabel = (days, suffix = "days") => {
-  if (days === 0) return "Today";
-  if (days === 1) return `1 ${suffix.slice(0, -1)}`;
-  return `${days} ${suffix}`;
-};
-
-const syncOnboardingInjectionLogs = async (
-  userId,
-  plan,
-  injectionsThisMonth,
-  lastInjectionDate
-) => {
-  const count = Math.max(0, Number(injectionsThisMonth) || 0);
-  const periodStart = getCurrentMonthStart();
-
-  await InjectionLog.deleteMany({
-    patient: userId,
-    plan: plan._id,
-    notes: ONBOARDING_INJECTION_NOTE,
-    injectedAt: { $gte: periodStart },
-  });
-
-  if (count === 0) return;
-
-  const reportedAt = new Date();
-  const validLastDate = lastInjectionDate ? new Date(lastInjectionDate) : reportedAt;
-
-  await InjectionLog.create({
-    patient: userId,
-    plan: plan._id,
-    medication: plan.name,
-    dosage: plan.currentDosage || "",
-    injectedAt: validLastDate,
-    notes: ONBOARDING_INJECTION_NOTE,
-  });
-};
 
 /**
  * Get patient dashboard — single aggregated response
@@ -83,21 +30,15 @@ export const getDashboard = async (userId) => {
   );
   if (!patient) throw new ApiError(404, "Patient profile not found");
 
-  // Find all s
   const activePlans = await Plan.find({ patient: userId, isActive: true }).populate(
     "assignedProvider"
   );
 
-  // Latest weight log (used for weight loss calculations)
   const latestWeight = await WeightLog.findOne({ patient: userId }).sort({ loggedAt: -1 });
-
-  // Latest injection log (for general insights if needed, but we'll calculate per-plan if we assume injections are linked to plans)
-  // For now, let's assume injection logs are generic but we might want to filter them by medication in the future.
-  // To keep it simple and matching the UI, we'll get the latest injection log.
 
   const plansData = await Promise.all(
     activePlans.map(async (plan) => {
-      // Latest injection for THIS medication
+      // Latest injection for THIS plan/medication
       const latestInjection = await InjectionLog.findOne({
         patient: userId,
         $or: [
@@ -120,18 +61,29 @@ export const getDashboard = async (userId) => {
           ? Math.min(100, Math.round((currentWeightLoss / plan.targetWeightLoss) * 100))
           : null;
 
-      const refillBaseDate = plan.onboardingDate || plan.startedAt;
-      const computedNextRefillDate = getNextRefillDate(refillBaseDate);
-      let reorderStatus = null;
-      let daysUntilNextRefill = null;
-      let nextRefillLabel = null;
-      if (computedNextRefillDate) {
-        daysUntilNextRefill = getDaysUntilNextRefill(refillBaseDate);
-        reorderStatus =
-          daysUntilNextRefill <= 0 ? "eligible_now" : `eligible_in_${daysUntilNextRefill}_days`;
-        nextRefillLabel =
-          daysUntilNextRefill <= 0 ? "Available now" : `In ${getDayLabel(daysUntilNextRefill)}`;
+      const frequency = Number(plan.frequency);
+      const cycleStart = getCycleStartDate(plan);
+      const currentCycleLogsCount = await countCycleInjectionLogs(userId, plan, cycleStart);
+
+      // ── Compute next refill date with new logic ──────────────────────────────
+      const computedNextRefillDate = computeNextRefillDate(
+        plan,
+        latestInjection,
+        currentCycleLogsCount
+      );
+
+      // Persist if changed
+      if (
+        computedNextRefillDate &&
+        (!plan.nextRefillDate ||
+          new Date(plan.nextRefillDate).getTime() !== computedNextRefillDate.getTime())
+      ) {
+        plan.nextRefillDate = computedNextRefillDate;
+        await Plan.findByIdAndUpdate(plan._id, { nextRefillDate: computedNextRefillDate });
       }
+
+      const { daysUntilNextRefill, reorderStatus, nextRefillLabel } =
+        getRefillReorderFields(computedNextRefillDate);
 
       const monthsCompleted = Math.max(
         0,
@@ -177,73 +129,28 @@ export const getDashboard = async (userId) => {
         assignedProvider: planProviderData,
       };
 
-      // Health insights for this specific plan
       const totalLossPercent = hasWeightProgress
         ? Math.round(((latestWeight.weightLbs - plan.startWeight) / plan.startWeight) * 100 * 10) /
           10
         : null;
 
-      const firstWeightLog = await WeightLog.findOne({
-        patient: userId,
-        loggedAt: { $gte: plan.startedAt },
-      }).sort({ loggedAt: 1 });
-
-      const frequency = Number(plan.frequency);
-      const injectionIntervalDays = getInjectionIntervalDays(frequency);
-      let daysSinceLastInjection = null;
-      let nextInjectionDate = null;
-      let daysUntilNextInjection = null;
-
-      if (latestInjection && injectionIntervalDays) {
-        daysSinceLastInjection = dayjs()
-          .startOf("day")
-          .diff(dayjs(latestInjection.injectedAt).startOf("day"), "day");
-        nextInjectionDate = addDays(new Date(latestInjection.injectedAt), injectionIntervalDays);
-        daysUntilNextInjection = Math.max(
-          0,
-          Math.ceil((nextInjectionDate - new Date()) / MS_PER_DAY)
-        );
-      }
-
-      const periodStart = getCurrentMonthStart();
-
-      const hasOnboardingLog = await InjectionLog.exists({
-        patient: userId,
-        plan: plan._id,
-        injectedAt: { $gte: periodStart },
-        notes: ONBOARDING_INJECTION_NOTE,
-      });
-
-      const regularLogsCount = await InjectionLog.countDocuments({
-        patient: userId,
-        plan: plan._id,
-        injectedAt: { $gte: periodStart },
-        notes: { $ne: ONBOARDING_INJECTION_NOTE },
-      });
-
-      const currentPeriodLogsCount = hasOnboardingLog
-        ? (plan.onboardingInjectionsThisMonth || 0) + regularLogsCount
-        : regularLogsCount;
+      const lastInjectionAt = resolveLastInjectionAt(plan, latestInjection);
+      const injectionInsights = buildInjectionInsights({ frequency, lastInjectionAt });
 
       const insights = {
         currentDosage: plan.currentDosage,
-        lastInjectionAt: latestInjection?.injectedAt || null,
-        daysSinceLastInjection,
-        nextInjectionDate,
-        daysUntilNextInjection,
-        nextInjectionLabel:
-          daysUntilNextInjection !== null ? getDayLabel(daysUntilNextInjection) : null,
-        injectionIntervalDays,
+        lastInjectionAt,
+        ...injectionInsights,
         nextRefillDate: computedNextRefillDate,
         daysUntilNextRefill,
         nextRefillLabel,
         totalLossPercent,
         startWeight: plan.startWeight,
         injectionFrequency: {
-          count: currentPeriodLogsCount,
+          count: currentCycleLogsCount,
           total: frequency,
-          label: frequency ? `${currentPeriodLogsCount} of ${frequency} injections` : null,
-          isLimitReached: frequency ? currentPeriodLogsCount >= frequency : false,
+          label: frequency ? `${currentCycleLogsCount} of ${frequency} injections` : null,
+          isLimitReached: frequency ? currentCycleLogsCount >= frequency : false,
         },
       };
 
@@ -317,11 +224,11 @@ export const getDashboard = async (userId) => {
 };
 
 /**
- * Get s for onboarding
+ * Get plans for onboarding
  */
 export const getActivePlans = async (userId) => {
   const activePlans = await Plan.find({ patient: userId, isActive: true }).select(
-    "name currentDosage frequency onboardingInjectionsThisMonth startWeight targetWeightLoss type"
+    "name currentDosage frequency onboardingInjectionsThisMonth startWeight targetWeightLoss type startedAt nextRefillDate refillCycleStartedAt onboardingDate"
   );
   return activePlans;
 };
@@ -362,23 +269,30 @@ export const updatePlanDosage = async (
   lastInjectionDate
 ) => {
   const update = {};
+  const onboardingAt = new Date();
   if (dosage !== undefined) update.currentDosage = String(dosage);
   if (frequency !== undefined) update.frequency = Number(frequency);
   if (injectionsThisMonth !== undefined)
     update.onboardingInjectionsThisMonth = Number(injectionsThisMonth);
+  if (lastInjectionDate !== undefined) update.lastKnownInjectionDate = new Date(lastInjectionDate); // ✅
+  if (injectionsThisMonth !== undefined || frequency !== undefined || dosage !== undefined) {
+    update.startedAt = onboardingAt;
+    update.refillCycleStartedAt = onboardingAt;
+  }
 
   const plan = await Plan.findOneAndUpdate({ _id: planId, patient: userId }, update, { new: true });
   if (!plan) throw new ApiError(404, "Plan not found");
 
   if (injectionsThisMonth !== undefined) {
-    await syncOnboardingInjectionLogs(userId, plan, injectionsThisMonth, lastInjectionDate);
+    await syncOnboardingInjectionLogs(userId, plan, injectionsThisMonth, lastInjectionDate); // ✅
   }
 
   return plan;
 };
 
 /**
- * Update onboarding weights (start weight and target loss)
+ * Update onboarding weights (start weight and target loss).
+ * Also stamps onboardingDate on plans the first time weights are set.
  */
 export const updateOnboardingWeights = async (
   userId,
@@ -404,9 +318,10 @@ export const updateOnboardingWeights = async (
     planUpdate.targetWeightLoss = numericTargetWeightLoss;
   }
 
-  // Set onboardingDate only on first time weights are entered
+  // Stamp onboardingDate only on plans that don't have one yet
+  // (first time a patient completes the weight step = their onboarding date)
   const existingPlans = await Plan.find({ patient: userId, isActive: true, type: "weight-loss" });
-  const hasNoOnboardingDate = existingPlans.some(p => !p.onboardingDate);
+  const hasNoOnboardingDate = existingPlans.some((p) => !p.onboardingDate);
   if (hasNoOnboardingDate) {
     planUpdate.onboardingDate = new Date();
   }
@@ -446,11 +361,10 @@ export const getMyNp = async (userId) => {
   const patient = await Patient.findOne({ user: userId });
   if (!patient) throw new ApiError(404, "Patient profile not found");
 
-  // Get s and find a provider
   const activePlans = await Plan.find({ patient: userId, isActive: true });
   const planWithProvider = activePlans.find((p) => p.assignedProvider);
 
-  if (!planWithProvider) throw new ApiError(404, "No provider assigned to any ");
+  if (!planWithProvider) throw new ApiError(404, "No provider assigned to any plan");
 
   const provider = await Provider.findOne({ user: planWithProvider.assignedProvider }).populate(
     "user",
@@ -528,23 +442,30 @@ export const logWeight = async (userId, weight, unit, loggedAt) => {
  * Log injection
  */
 export const logInjection = async (userId, site, injectedAt, dosage, notes, planId, medication) => {
-  // 1. Fetch plan and enforce frequency limit
   const plan = planId ? await Plan.findOne({ _id: planId, patient: userId }) : null;
   if (planId && !plan) throw new ApiError(404, "Plan not found");
 
   if (plan) {
     const frequency = Number(plan.frequency);
+    const now = new Date();
 
-    // Period: current calendar month
-    const periodStart = getCurrentMonthStart();
+    let cycleStart = getCycleStartDate(plan) || now;
+    let currentCycleLogs = await countCycleInjectionLogs(userId, plan, cycleStart);
 
-    const currentPeriodLogs = await InjectionLog.countDocuments({
-      patient: userId,
-      plan: planId,
-      injectedAt: { $gte: periodStart },
-    });
+    // Roll over to a fresh cycle if the refill date has passed and the previous cycle is complete
+    if (
+      plan.nextRefillDate &&
+      now >= new Date(plan.nextRefillDate) &&
+      currentCycleLogs >= frequency
+    ) {
+      plan.refillCycleStartedAt = now;
+      plan.onboardingInjectionsThisMonth = 0;
+      await plan.save();
+      cycleStart = plan.refillCycleStartedAt;
+      currentCycleLogs = 0;
+    }
 
-    if (frequency && currentPeriodLogs >= frequency) {
+    if (frequency && currentCycleLogs >= frequency) {
       throw new ApiError(
         400,
         `You have reached your limit of ${frequency} injections for this period.`
@@ -552,12 +473,8 @@ export const logInjection = async (userId, site, injectedAt, dosage, notes, plan
     }
   }
 
-  // If medication isn't provided, try to fetch it from the plan
   let med = medication;
-  if (!med && plan) {
-    med = plan.name;
-  }
-
+  if (!med && plan) med = plan.name;
   if (!med)
     throw new ApiError(400, "Medication is required when logging an injection without a plan");
 
@@ -570,6 +487,18 @@ export const logInjection = async (userId, site, injectedAt, dosage, notes, plan
     injectedAt,
     notes: notes || "",
   });
+
+  // After creating the log, recompute and persist the next refill date
+  if (plan) {
+    const cycleStart = getCycleStartDate(plan);
+    const updatedCycleLogs = await countCycleInjectionLogs(userId, plan, cycleStart);
+
+    const newRefillDate = computeNextRefillDate(plan, log, updatedCycleLogs);
+    if (newRefillDate) {
+      plan.nextRefillDate = newRefillDate;
+      await plan.save();
+    }
+  }
 
   return log;
 };
@@ -599,32 +528,27 @@ export const getInjectionHistory = async (userId, planId) => {
 
   const history = await InjectionLog.find(query).sort({ injectedAt: -1 });
 
-  // Calculate progress based on plan frequency (strictly per month)
   const frequency = plan ? Number(plan.frequency) : null;
+  const cycleStart = plan ? getCycleStartDate(plan) : null;
 
-  const periodStart = getCurrentMonthStart();
+  const currentPeriodInjections = cycleStart
+    ? history.filter((log) => log.injectedAt >= cycleStart).length
+    : history.length;
 
-  const hasOnboardingLog = history.some(
-    (log) => log.injectedAt >= periodStart && log.notes === ONBOARDING_INJECTION_NOTE
-  );
+  const last30DaysStart = new Date();
+  last30DaysStart.setDate(last30DaysStart.getDate() - 30);
 
-  const regularLogsCount = history.filter(
-    (log) => log.injectedAt >= periodStart && log.notes !== ONBOARDING_INJECTION_NOTE
+  const last30DaysCount = history.filter(
+    (log) => new Date(log.injectedAt) >= last30DaysStart
   ).length;
-
-  const currentPeriodInjections = hasOnboardingLog
-    ? (plan ? plan.onboardingInjectionsThisMonth || 0 : 0) + regularLogsCount
-    : regularLogsCount;
 
   return {
     history,
     monthlyProgress: {
-      count: currentPeriodInjections,
+      count: last30DaysCount, // 👈 frontend-friendly (stable)
       total: frequency,
-      label: frequency ? `${currentPeriodInjections} of ${frequency} injections` : null,
-      percentage: frequency
-        ? Math.min(100, Math.round((currentPeriodInjections / frequency) * 100))
-        : null,
+      label: frequency ? `${last30DaysCount} of ${frequency} injections` : null,
+      percentage: frequency ? Math.min(100, Math.round((last30DaysCount / frequency) * 100)) : null,
     },
   };
 };

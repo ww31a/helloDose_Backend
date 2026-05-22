@@ -1,10 +1,19 @@
 import Joi from "joi";
 
 export const requestOtpSchema = Joi.object({
-  email: Joi.string().email().required(),
-  role: Joi.string().valid("patient", "provider").optional(),
-});
+  email: Joi.string()
+    .email()
+    .required()
+    .messages({
+      "string.email": "Please enter a valid email address",
+      "string.empty": "Email is required",
+      "any.required": "Email is required",
+    }),
 
+  role: Joi.string()
+    .valid("patient", "provider")
+    .optional(),
+});
 export const verifyOtpSchema = Joi.object({
   email: Joi.string().email().required(),
   otp: Joi.string().length(6).pattern(/^\d+$/).required(),
