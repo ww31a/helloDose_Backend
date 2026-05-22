@@ -277,7 +277,13 @@ export const updatePlanDosage = async (
   if (lastInjectionDate !== undefined) update.lastKnownInjectionDate = new Date(lastInjectionDate); // ✅
   if (injectionsThisMonth !== undefined || frequency !== undefined || dosage !== undefined) {
     update.startedAt = onboardingAt;
+    if (lastInjectionDate) {
+    const cycleStart = new Date(lastInjectionDate);
+    cycleStart.setHours(0, 0, 0, 0);
+    update.refillCycleStartedAt = cycleStart;
+  } else {
     update.refillCycleStartedAt = onboardingAt;
+  }
   }
 
   const plan = await Plan.findOneAndUpdate({ _id: planId, patient: userId }, update, { new: true });
