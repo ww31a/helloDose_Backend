@@ -38,6 +38,7 @@ const userSchema = new mongoose.Schema(
     notificationPreferences: {
       weightLogRemindersEnabled: { type: Boolean, default: true },
     },
+    timezone: { type: String},
     isActive: { type: Boolean, default: true },
     onboardingCompleted: { type: Boolean, default: false },
   },

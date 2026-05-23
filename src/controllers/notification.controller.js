@@ -7,7 +7,8 @@ export const registerDeviceToken = asyncHandler(async (req, res) => {
     req.user._id,
     req.body.token,
     req.body.platform,
-    req.body.appVersion
+    req.body.appVersion,
+    req.body.timezone
   );
   res.status(200).json(new ApiResponse(200, data, "Device token registered"));
 });

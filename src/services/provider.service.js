@@ -281,7 +281,10 @@ export const requestCheckin = async (providerUserId, patientId) => {
   const providerUser = await User.findById(providerUserId).select("firstName lastName");
 
   // Set checkinRequested to true
-  await Patient.findOneAndUpdate({ user: patientId }, { checkinRequested: true });
+  await Patient.findOneAndUpdate(
+    { user: patientId },
+    { checkinRequested: true, checkinRequestedAt: new Date() }
+  );
 
   try {
     await sendNotificationTypeToUser(patientId, NOTIFICATION_TYPES.NP_CHECKIN_REQUEST, {

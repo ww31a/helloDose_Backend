@@ -3,6 +3,17 @@ import { ApiError } from "../utils/ApiError.js";
 import { getFirebaseAdmin } from "../utils/firebaseAdmin.js";
 import { buildNotificationTemplate } from "./notificationTemplates.js";
 
+import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc.js";
+import timezone from "dayjs/plugin/timezone.js";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const isValidTimezone = (tz) => {
+  return typeof tz === "string" && dayjs.tz.zone(tz);
+};
+
 const INVALID_TOKEN_CODES = new Set([
   "messaging/invalid-registration-token",
   "messaging/registration-token-not-registered",
@@ -32,7 +43,7 @@ const removeInvalidTokens = async (tokens) => {
   await User.updateMany({ deviceToken: { $in: tokens } }, { $unset: { deviceToken: "" } });
 };
 
-export const registerDeviceToken = async (userId, token, platform = "unknown", appVersion = "") => {
+export const registerDeviceToken = async (userId, token, platform = "unknown", appVersion = "", timezone) => {
   if (!token) throw new ApiError(400, "Device token is required");
 
   await User.updateMany({}, { $pull: { deviceTokens: { token } } });
@@ -40,7 +51,7 @@ export const registerDeviceToken = async (userId, token, platform = "unknown", a
   const user = await User.findByIdAndUpdate(
     userId,
     {
-      $set: { deviceToken: token },
+      $set: { deviceToken: token, ...(timezone && { timezone }) },
       $push: {
         deviceTokens: {
           token,

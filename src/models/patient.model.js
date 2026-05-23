@@ -19,6 +19,7 @@ const patientSchema = new mongoose.Schema(
     primaryGoal: { type: String },
     npCheckinDate: { type: Date },
     checkinRequested: { type: Boolean, default: false },
+    checkinRequestedAt: { type: Date },
   },
   { timestamps: true }
 );

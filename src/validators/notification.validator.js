@@ -5,6 +5,7 @@ export const registerDeviceTokenSchema = Joi.object({
   token: Joi.string().required(),
   platform: Joi.string().valid("ios", "android", "unknown").default("unknown"),
   appVersion: Joi.string().allow("").optional(),
+  timezone: Joi.string().optional().allow(null, ""),
 });
 
 export const unregisterDeviceTokenSchema = Joi.object({
