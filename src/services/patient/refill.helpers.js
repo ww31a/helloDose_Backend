@@ -24,6 +24,10 @@ export const resolveLastInjectionForRefill = (plan, latestInjection) => {
  */
 export const computeNextRefillDate = (plan, lastInjection, completedCount) => {
   const frequency = Number(plan.frequency);
+
+   if (!plan.lastKnownInjectionDate && plan.refillCycleStartedAt) {
+    return addDays(new Date(plan.refillCycleStartedAt), DAYS_IN_INJECTION_CYCLE);
+  }
   const lastInjectionRecord = resolveLastInjectionForRefill(plan, lastInjection);
 
   if (lastInjectionRecord?.injectedAt) {
