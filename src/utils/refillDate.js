@@ -28,7 +28,7 @@ export function getNextRefillDate(startedAt) {
 export function getDaysUntilNextRefill(startedAt) {
   const nextRefill = getNextRefillDate(startedAt);
   if (!nextRefill) return null;
-  return Math.ceil((nextRefill - new Date()) / MS_PER_DAY);
+  return dayjs(nextRefill).startOf("day").diff(dayjs().startOf("day"), "day");
 }
 
 export function getRefillEligibleLabel(startedAt) {

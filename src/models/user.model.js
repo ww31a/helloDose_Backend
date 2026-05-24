@@ -20,8 +20,6 @@ const userSchema = new mongoose.Schema(
     },
     avatar: { type: String, default: "" },
     vagaro_id: { type: String, index: true, sparse: true },
-    calcom_username: { type: String },
-    calcom_event_type_slug: { type: String },
     otp: { type: String },
     otpExpiry: { type: Date },
     refreshToken: { type: String },

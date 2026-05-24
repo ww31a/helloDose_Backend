@@ -1,5 +1,5 @@
 import rateLimit from "express-rate-limit";
-
+// TODO: replace MemoryStore with Redis store (rate-limit-redis) before scaling
 export const otpLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5,

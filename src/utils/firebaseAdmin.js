@@ -12,8 +12,9 @@ const defaultServiceAccountPath = path.join(
 );
 
 const getServiceAccount = () => {
-  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    return JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_B64) {
+    const json = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_B64, "base64").toString("utf8");
+    return JSON.parse(json);
   }
 
   const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || defaultServiceAccountPath;

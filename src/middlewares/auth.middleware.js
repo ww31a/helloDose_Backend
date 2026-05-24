@@ -25,6 +25,8 @@ export const verifyToken = async (req, res, next) => {
     next();
   } catch (error) {
     if (error instanceof ApiError) throw error;
+    if (error instanceof jwt.TokenExpiredError) throw new ApiError(401, "Token expired");
+    logger.error("Token verification failed", error); // add this
     throw new ApiError(401, "Invalid or expired token");
   }
 };

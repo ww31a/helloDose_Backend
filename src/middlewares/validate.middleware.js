@@ -11,14 +11,11 @@ export const validate = (schema) => {
       const messages = error.details.map((d) => d.message).join(", ");
       throw new ApiError(400, messages);
     }
-
-    if (!error) {
-      // Clear existing keys to handle stripUnknown: true correctly
-      for (const key in req.body) {
-        delete req.body[key];
-      }
-      Object.assign(req.body, value);
+    // Clear existing keys to handle stripUnknown: true correctly
+    for (const key in req.body) {
+      delete req.body[key];
     }
+    Object.assign(req.body, value);
     next();
   };
 };
